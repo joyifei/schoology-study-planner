@@ -2,7 +2,11 @@ const STORAGE_KEY = "schoologyStudyPlanner.tasks";
 const DONE_KEY = "schoologyStudyPlanner.done";
 const DURATION_KEY = "schoologyStudyPlanner.durations";
 const PLAN_KEY = "schoologyStudyPlanner.plan";
+const COURSES_KEY = "schoologyStudyPlanner.courses";
+const GPA_SETTINGS_KEY = "schoologyStudyPlanner.gpaSettings";
 const SYNC_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SYNC_V2";
+const SCAN_COURSES_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SCAN_COURSES_V1";
+const SCAN_GRADE_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SCAN_GRADE_V1";
 
 const elements = {
   syncButton: document.querySelector("#syncButton"),
@@ -16,14 +20,30 @@ const elements = {
   taskTable: document.querySelector("#taskTable"),
   emptyState: document.querySelector("#emptyState"),
   planTotal: document.querySelector("#planTotal"),
-  planList: document.querySelector("#planList")
+  planList: document.querySelector("#planList"),
+  tabButtons: Array.from(document.querySelectorAll(".tab-button")),
+  tabPanels: Array.from(document.querySelectorAll(".tab-panel")),
+  scanCoursesButton: document.querySelector("#scanCoursesButton"),
+  saveGradeButton: document.querySelector("#saveGradeButton"),
+  gradesTable: document.querySelector("#gradesTable"),
+  gradesEmptyState: document.querySelector("#gradesEmptyState"),
+  weightedGpa: document.querySelector("#weightedGpa"),
+  unweightedGpa: document.querySelector("#unweightedGpa"),
+  gpaCourseCount: document.querySelector("#gpaCourseCount"),
+  honorsBonusInput: document.querySelector("#honorsBonusInput"),
+  apBonusInput: document.querySelector("#apBonusInput")
 };
 
 let state = {
   tasks: [],
   done: {},
   durations: {},
-  plan: {}
+  plan: {},
+  courses: [],
+  gpaSettings: {
+    honorsBonus: 0.5,
+    apBonus: 1.0
+  }
 };
 
 function stableUrl(url) {
@@ -123,6 +143,56 @@ function isPlanned(task, defaultIds = defaultPlanIds()) {
   const entry = getPlanEntry(task);
   if (entry) return Boolean(entry.included);
   return defaultIds.has(stableTaskId(task));
+}
+
+function courseKey(course) {
+  return course.id || `name:${[course.name || "", course.section || ""].join("|").toLowerCase()}`;
+}
+
+function mergeCourses(existing, incoming) {
+  const byId = new Map(existing.map((course) => [courseKey(course), course]));
+  for (const course of incoming) {
+    const key = courseKey(course);
+    const previous = byId.get(key) || {};
+    const merged = { ...previous, ...course, id: key };
+    if (previous.includeInGpa !== undefined) merged.includeInGpa = previous.includeInGpa;
+    if (previous.level) merged.level = previous.level;
+    if (previous.gradePercent !== undefined && course.gradePercent == null) merged.gradePercent = previous.gradePercent;
+    byId.set(key, merged);
+  }
+  return Array.from(byId.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+}
+
+function gradePoints(percent) {
+  const value = Number.parseFloat(percent);
+  if (!Number.isFinite(value)) return null;
+  if (value >= 93) return 4.0;
+  if (value >= 90) return 3.7;
+  if (value >= 87) return 3.3;
+  if (value >= 83) return 3.0;
+  if (value >= 80) return 2.7;
+  if (value >= 77) return 2.3;
+  if (value >= 73) return 2.0;
+  if (value >= 70) return 1.7;
+  if (value >= 67) return 1.3;
+  if (value >= 65) return 1.0;
+  return 0;
+}
+
+function weightBonus(course) {
+  if (course.level === "ap") return Number.parseFloat(state.gpaSettings.apBonus) || 0;
+  if (course.level === "honors") return Number.parseFloat(state.gpaSettings.honorsBonus) || 0;
+  return 0;
+}
+
+function courseGpa(course, weighted = true) {
+  const base = gradePoints(course.gradePercent);
+  if (base === null) return null;
+  return Math.min(5, base + (weighted ? weightBonus(course) : 0));
+}
+
+function formatGpa(value) {
+  return Number.isFinite(value) ? value.toFixed(2) : "--";
 }
 
 function formatDateTime(iso, fallback) {
@@ -300,20 +370,114 @@ function renderPlan() {
   });
 }
 
+function renderGrades() {
+  elements.gradesTable.replaceChildren();
+  elements.gradesEmptyState.hidden = state.courses.length > 0;
+
+  for (const course of state.courses) {
+    const row = document.createElement("tr");
+
+    const name = document.createElement("td");
+    const link = document.createElement(course.url ? "a" : "span");
+    link.textContent = course.name || "Untitled course";
+    if (course.url) {
+      link.href = course.url;
+      link.target = "_blank";
+    }
+    name.append(link);
+
+    const section = document.createElement("td");
+    section.textContent = course.section || "";
+
+    const grade = document.createElement("td");
+    const gradeInput = document.createElement("input");
+    gradeInput.className = "grade-input";
+    gradeInput.type = "number";
+    gradeInput.min = "0";
+    gradeInput.max = "110";
+    gradeInput.step = "0.1";
+    gradeInput.value = course.gradePercent ?? "";
+    gradeInput.placeholder = "%";
+    gradeInput.ariaLabel = `Grade percent for ${course.name}`;
+    gradeInput.addEventListener("change", () => updateCourse(course.id, { gradePercent: gradeInput.value ? Number.parseFloat(gradeInput.value) : null }));
+    grade.append(gradeInput);
+
+    const level = document.createElement("td");
+    const levelSelect = document.createElement("select");
+    levelSelect.className = "level-select";
+    for (const [value, label] of [["regular", "Regular"], ["honors", "Honors"], ["ap", "AP"]]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      levelSelect.append(option);
+    }
+    levelSelect.value = course.level || "regular";
+    levelSelect.addEventListener("change", () => updateCourse(course.id, { level: levelSelect.value }));
+    level.append(levelSelect);
+
+    const gpa = document.createElement("td");
+    gpa.textContent = formatGpa(courseGpa(course));
+
+    const include = document.createElement("td");
+    const includeCheckbox = document.createElement("input");
+    includeCheckbox.type = "checkbox";
+    includeCheckbox.checked = course.includeInGpa !== false;
+    includeCheckbox.ariaLabel = `Include ${course.name} in GPA`;
+    includeCheckbox.addEventListener("change", () => updateCourse(course.id, { includeInGpa: includeCheckbox.checked }));
+    include.append(includeCheckbox);
+
+    row.append(name, section, grade, level, gpa, include);
+    elements.gradesTable.append(row);
+  }
+}
+
+function renderGpa() {
+  const included = state.courses.filter((course) => course.includeInGpa !== false && courseGpa(course, false) !== null);
+  const unweighted = included.length
+    ? included.reduce((sum, course) => sum + courseGpa(course, false), 0) / included.length
+    : NaN;
+  const weighted = included.length
+    ? included.reduce((sum, course) => sum + courseGpa(course, true), 0) / included.length
+    : NaN;
+
+  elements.unweightedGpa.textContent = formatGpa(unweighted);
+  elements.weightedGpa.textContent = formatGpa(weighted);
+  elements.gpaCourseCount.textContent = String(included.length);
+  elements.honorsBonusInput.value = String(state.gpaSettings.honorsBonus);
+  elements.apBonusInput.value = String(state.gpaSettings.apBonus);
+}
+
 function render() {
   renderSummary();
   renderTable();
   renderPlan();
+  renderGrades();
+  renderGpa();
 }
 
 function load() {
-  chrome.storage.local.get([STORAGE_KEY, DONE_KEY, DURATION_KEY, PLAN_KEY], (stored) => {
+  chrome.storage.local.get([STORAGE_KEY, DONE_KEY, DURATION_KEY, PLAN_KEY, COURSES_KEY, GPA_SETTINGS_KEY], (stored) => {
     state.tasks = Array.isArray(stored[STORAGE_KEY]) ? stored[STORAGE_KEY] : [];
     state.done = stored[DONE_KEY] || {};
     state.durations = stored[DURATION_KEY] || {};
     state.plan = stored[PLAN_KEY] || {};
+    state.courses = Array.isArray(stored[COURSES_KEY]) ? stored[COURSES_KEY] : [];
+    state.gpaSettings = { ...state.gpaSettings, ...(stored[GPA_SETTINGS_KEY] || {}) };
     render();
   });
+}
+
+function saveCourses(nextCourses = state.courses) {
+  state.courses = nextCourses;
+  chrome.storage.local.set({ [COURSES_KEY]: state.courses }, render);
+}
+
+function saveGpaSettings() {
+  chrome.storage.local.set({ [GPA_SETTINGS_KEY]: state.gpaSettings }, render);
+}
+
+function updateCourse(id, patch) {
+  saveCourses(state.courses.map((course) => course.id === id ? { ...course, ...patch } : course));
 }
 
 function toggleDone(task, checked) {
@@ -408,6 +572,59 @@ function syncCurrentTab() {
   });
 }
 
+function sendSchoologyMessage(type, onResponse) {
+  chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+    if (!tab?.id) {
+      elements.syncStatus.textContent = "No active tab found.";
+      return;
+    }
+
+    chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["src/contentScript.js"] }, () => {
+      if (chrome.runtime.lastError) {
+        elements.syncStatus.textContent = "Open a Schoology page first.";
+        return;
+      }
+
+      chrome.tabs.sendMessage(tab.id, { type }, (response) => {
+        if (chrome.runtime.lastError || !response?.ok) {
+          elements.syncStatus.textContent = "Could not read this Schoology page.";
+          return;
+        }
+        onResponse(response);
+      });
+    });
+  });
+}
+
+function scanCourses() {
+  elements.syncStatus.textContent = "Scanning visible Schoology courses...";
+  sendSchoologyMessage(SCAN_COURSES_MESSAGE, (response) => {
+    const courses = response.courses || [];
+    saveCourses(mergeCourses(state.courses, courses));
+    elements.syncStatus.textContent = `Saved ${courses.length} course${courses.length === 1 ? "" : "s"}.`;
+  });
+}
+
+function saveCurrentGrade() {
+  elements.syncStatus.textContent = "Reading current Grades page...";
+  sendSchoologyMessage(SCAN_GRADE_MESSAGE, (response) => {
+    const grade = response.grade;
+    if (!grade) {
+      elements.syncStatus.textContent = "No grade found on this page.";
+      return;
+    }
+    saveCourses(mergeCourses(state.courses, [grade]));
+    elements.syncStatus.textContent = grade.gradePercent === null
+      ? `Saved ${grade.name}; enter grade manually.`
+      : `Saved ${grade.name}: ${grade.gradePercent}%.`;
+  });
+}
+
+function switchTab(tabId) {
+  for (const button of elements.tabButtons) button.classList.toggle("active", button.dataset.tab === tabId);
+  for (const panel of elements.tabPanels) panel.classList.toggle("active", panel.id === tabId);
+}
+
 function mergeTasks(existing, incoming) {
   const normalize = (task) => ({
     ...task,
@@ -431,7 +648,7 @@ function replaceSyncedTasks(existing, incoming) {
 
 function clearSavedData() {
   chrome.storage.local.remove([STORAGE_KEY, DONE_KEY, DURATION_KEY, PLAN_KEY], () => {
-    state = { tasks: [], done: {}, durations: {}, plan: {} };
+    state = { ...state, tasks: [], done: {}, durations: {}, plan: {} };
     elements.syncStatus.textContent = "Saved homework cleared.";
     render();
   });
@@ -440,5 +657,18 @@ function clearSavedData() {
 elements.syncButton.addEventListener("click", syncCurrentTab);
 elements.clearButton.addEventListener("click", clearSavedData);
 elements.filterSelect.addEventListener("change", renderTable);
+elements.scanCoursesButton.addEventListener("click", scanCourses);
+elements.saveGradeButton.addEventListener("click", saveCurrentGrade);
+elements.honorsBonusInput.addEventListener("change", () => {
+  state.gpaSettings = { ...state.gpaSettings, honorsBonus: Number.parseFloat(elements.honorsBonusInput.value) || 0 };
+  saveGpaSettings();
+});
+elements.apBonusInput.addEventListener("change", () => {
+  state.gpaSettings = { ...state.gpaSettings, apBonus: Number.parseFloat(elements.apBonusInput.value) || 0 };
+  saveGpaSettings();
+});
+for (const button of elements.tabButtons) {
+  button.addEventListener("click", () => switchTab(button.dataset.tab));
+}
 
 load();

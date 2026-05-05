@@ -1,6 +1,8 @@
 (function () {
   const STORAGE_KEY = "schoologyStudyPlanner.tasks";
   const SYNC_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SYNC_V2";
+  const SCAN_COURSES_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SCAN_COURSES_V1";
+  const SCAN_GRADE_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SCAN_GRADE_V1";
 
   function normalizeText(value) {
     return (value || "").replace(/\s+/g, " ").trim();
@@ -218,6 +220,119 @@
     return [task.title, task.course, task.dueText].join("|").toLowerCase();
   }
 
+  function courseIdFromUrl(url) {
+    const stable = stableUrl(url);
+    const match = stable.match(/\/course\/(\d+)/i);
+    if (match) return `course:${match[1]}`;
+    return stable ? `url:${stable}` : "";
+  }
+
+  function courseUrlFromLink(link) {
+    if (!link?.href) return "";
+    try {
+      return new URL(link.href, window.location.href).toString();
+    } catch (_error) {
+      return link.href;
+    }
+  }
+
+  function extractCourses() {
+    const links = Array.from(document.querySelectorAll("a[href*='/course/']"));
+    const courses = [];
+    const seen = new Set();
+
+    for (const link of links) {
+      const url = courseUrlFromLink(link);
+      const id = courseIdFromUrl(url);
+      const title = normalizeText(link.innerText || link.textContent);
+      if (!id || seen.has(id) || !title || /^courses$/i.test(title)) continue;
+
+      let container = link;
+      while (container.parentElement && container.parentElement !== document.body) {
+        const text = getVisibleText(container.parentElement);
+        if (text.includes(title) && text.length < 500) {
+          container = container.parentElement;
+        } else {
+          break;
+        }
+      }
+
+      const lines = visibleLines(container);
+      const titleIndex = lines.findIndex((line) => line === title || line.includes(title));
+      const section = titleIndex >= 0 && lines[titleIndex + 1] ? lines[titleIndex + 1] : "";
+      const school = titleIndex >= 0 && lines[titleIndex + 2] ? lines[titleIndex + 2] : "";
+
+      seen.add(id);
+      courses.push({
+        id,
+        name: title,
+        section,
+        school,
+        url,
+        includeInGpa: !/(homeroom|study hall|lunch)/i.test(title),
+        level: /(^|\b)(ap|advanced placement)\b/i.test(title) ? "ap" : (/honors/i.test(title) ? "honors" : "regular"),
+        capturedAt: new Date().toISOString()
+      });
+    }
+
+    return courses.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function currentCourseFromPage() {
+    const pageCourseId = courseIdFromUrl(window.location.href);
+    const courseLink = Array.from(document.querySelectorAll("a[href*='/course/']")).find((link) => {
+      const text = normalizeText(link.innerText || link.textContent);
+      return text && !/^courses$/i.test(text);
+    });
+    const heading = Array.from(document.querySelectorAll("h1,h2,.page-title,.course-title"))
+      .map((node) => normalizeText(node.innerText || node.textContent))
+      .find(Boolean);
+    const url = courseUrlFromLink(courseLink) || window.location.href;
+    return {
+      id: pageCourseId || courseIdFromUrl(url) || `url:${stableUrl(url)}`,
+      name: normalizeText(courseLink?.innerText || courseLink?.textContent) || heading || document.title || "Current course",
+      url
+    };
+  }
+
+  function extractGradePercentFromText(text) {
+    const patterns = [
+      /(?:overall|current|final|course|period|total)[^%\n]{0,80}?(\d{1,3}(?:\.\d+)?)\s*%/i,
+      /(\d{1,3}(?:\.\d+)?)\s*%/
+    ];
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (!match) continue;
+      const value = Number.parseFloat(match[1]);
+      if (Number.isFinite(value) && value >= 0 && value <= 110) return value;
+    }
+    return null;
+  }
+
+  function extractLetterGrade(text) {
+    const match = text.match(/\b(A\+|A-|A|B\+|B-|B|C\+|C-|C|D\+|D-|D|F)\b/);
+    return match ? match[1] : "";
+  }
+
+  function extractCurrentGrade() {
+    const course = currentCourseFromPage();
+    const tables = Array.from(document.querySelectorAll("table"));
+    const preferredText = tables
+      .map((table) => getVisibleText(table))
+      .find((text) => /overall|current|final|course|period|total|%/i.test(text));
+    const text = preferredText || getVisibleText(document.body);
+    const gradePercent = extractGradePercentFromText(text);
+    const letterGrade = extractLetterGrade(text);
+
+    return {
+      ...course,
+      gradePercent,
+      letterGrade,
+      scannedAt: new Date().toISOString(),
+      sourceUrl: window.location.href
+    };
+  }
+
   function extractTasks() {
     const container = findToDoContainer();
     if (!container) return [];
@@ -281,6 +396,16 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === SCAN_COURSES_MESSAGE) {
+      sendResponse({ ok: true, courses: extractCourses() });
+      return true;
+    }
+
+    if (message?.type === SCAN_GRADE_MESSAGE) {
+      sendResponse({ ok: true, grade: extractCurrentGrade() });
+      return true;
+    }
+
     if (message?.type !== SYNC_MESSAGE) return false;
     const tasks = extractTasks();
     saveTasks(tasks);

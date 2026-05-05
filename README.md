@@ -11,6 +11,7 @@ A Chrome extension that turns Schoology's right-side **To Do / Upcoming** panel 
 - Lets a parent edit the estimated minutes for each assignment.
 - Lets a parent add or remove assignments from Today Plan.
 - Builds a lightweight "Today Plan" ordered by overdue and soonest due items, using the saved duration estimates.
+- Scans Schoology courses and saves current course grades for a weighted GPA estimate.
 
 ## Install Locally
 
@@ -29,6 +30,8 @@ Because schools can customize Schoology and Schoology can change its markup, the
 Done status is matched to a stable Schoology assignment URL when one is available. If there is no URL, it falls back to the assignment title and course.
 
 Duration estimates use the same stable matching. Edit the `Min` field in the homework table; the value is saved immediately and reflected in the Today Plan.
+
+The Grades tab is intentionally semi-automatic. Open the Schoology Courses page and click `Scan Courses`, then open an individual course's Grades page and click `Save Current Grade`. GPA weights and course inclusion can be edited in the extension.
 
 ## Privacy
 

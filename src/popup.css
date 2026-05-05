@@ -98,6 +98,37 @@ button.ghost {
   font-weight: 600;
 }
 
+.button-row,
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tabs {
+  margin: 10px 0 12px;
+}
+
+.tab-button {
+  background: #fff;
+  color: var(--muted);
+  border-color: var(--line);
+}
+
+.tab-button.active {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
 select {
   padding: 0 8px;
 }
@@ -261,6 +292,50 @@ a:hover {
 .empty-state {
   padding: 18px 4px 4px;
   color: var(--muted);
+}
+
+.helper-text {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.grades-wrap {
+  max-height: 390px;
+}
+
+.level-select,
+.grade-input,
+.settings-grid input {
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.grade-input {
+  width: 72px;
+  padding: 0 6px;
+  text-align: right;
+}
+
+.level-select {
+  width: 88px;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.settings-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .duration-input {
