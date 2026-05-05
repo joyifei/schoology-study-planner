@@ -65,8 +65,8 @@
   function extractDueText(blockText) {
     const patterns = [
       /\bDue\s+(?:Today|Tomorrow)(?:,\s*)?(?:[^A-Z]*?\d{1,2}:\d{2}\s*(?:am|pm))?/i,
-      /\bDue\s+(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}(?:\s+at\s+\d{1,2}:\d{2}\s*(?:am|pm))?/i,
-      /\bDue\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}(?:\s+at\s+\d{1,2}:\d{2}\s*(?:am|pm))?/i,
+      /\bDue\s+(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}(?:\s+at(?:\s+\d{1,2}:\d{2}\s*(?:am|pm))?)?/i,
+      /\bDue\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}(?:\s+at(?:\s+\d{1,2}:\d{2}\s*(?:am|pm))?)?/i,
       /\b\d+\s+days?\s+overdue\b/i
     ];
 
@@ -139,6 +139,63 @@
     };
   }
 
+  function urlForTitle(links, title) {
+    const normalizedTitle = normalizeText(title).toLowerCase();
+    const match = links.find((link) => {
+      const linkText = normalizeText(link.innerText || link.textContent).toLowerCase();
+      return linkText === normalizedTitle || linkText.includes(normalizedTitle) || normalizedTitle.includes(linkText);
+    });
+    return match?.href || "";
+  }
+
+  function isDueLine(line) {
+    return /(\bDue\b|\boverdue\b)/i.test(line);
+  }
+
+  function tasksFromVisibleLines(lines, links) {
+    const tasks = [];
+    let section = "";
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (/^overdue$/i.test(line)) {
+        section = "Overdue";
+        continue;
+      }
+      if (/^upcoming$/i.test(line)) {
+        section = "Upcoming";
+        continue;
+      }
+      if (!section || isDueLine(line)) continue;
+
+      const dueIndex = index + 1;
+      if (!lines[dueIndex] || !isDueLine(lines[dueIndex])) continue;
+
+      const title = line;
+      const dueText = extractDueText(lines[dueIndex]);
+      if (!dueText) continue;
+
+      const course = lines[dueIndex + 1] && !/^(overdue|upcoming)$/i.test(lines[dueIndex + 1])
+        ? lines[dueIndex + 1]
+        : "Unknown course";
+
+      tasks.push({
+        id: "",
+        legacyId: "",
+        title,
+        course,
+        dueText,
+        dueAt: parseDueDate(dueText),
+        status: section,
+        url: urlForTitle(links, title),
+        source: "Schoology To Do",
+        capturedAt: new Date().toISOString()
+      });
+    }
+
+    return tasks;
+  }
+
   function stableUrl(url) {
     if (!url) return "";
     try {
@@ -172,11 +229,13 @@
       return title.length > 2;
     });
 
+    const lineTasks = tasksFromVisibleLines(lines, links);
+    const linkTasks = [];
     let searchStart = 0;
-    const tasks = links.map((link, index) => {
+    for (const [index, link] of links.entries()) {
       const title = normalizeText(link.innerText || link.textContent);
       const titleIndex = findLineIndex(lines, title, searchStart);
-      if (titleIndex < 0) return null;
+      if (titleIndex < 0) continue;
 
       const nextTitle = links[index + 1] ? normalizeText(links[index + 1].innerText || links[index + 1].textContent) : "";
       const nextTitleIndex = nextTitle ? findLineIndex(lines, nextTitle, titleIndex + 1) : -1;
@@ -185,7 +244,7 @@
       const status = section || (/overdue/i.test(details.dueText) ? "Overdue" : "Upcoming");
       searchStart = titleIndex + 1;
 
-      return {
+      linkTasks.push({
         id: "",
         legacyId: "",
         title,
@@ -196,11 +255,12 @@
         url: link.href || "",
         source: "Schoology To Do",
         capturedAt: new Date().toISOString()
-      };
-    }).filter((task) => task && task.dueText);
+      });
+    }
 
+    const extractedTasks = lineTasks.length > 0 ? lineTasks : linkTasks;
     const unique = new Map();
-    for (const task of tasks) {
+    for (const task of extractedTasks.filter((task) => task && task.dueText)) {
       task.id = taskId(task);
       task.legacyId = legacyTaskId(task);
       unique.set(task.id, task);
