@@ -45,21 +45,6 @@
       .sort((a, b) => a.element.innerText.length - b.element.innerText.length || b.score - a.score)[0]?.element || null;
   }
 
-  function nearestTaskBlock(link, container) {
-    let cursor = link;
-    let best = link;
-
-    while (cursor && cursor !== container && cursor !== document.body) {
-      const text = getVisibleText(cursor);
-      if (/(\bDue\b|\boverdue\b)/i.test(text) && text.length < 500) {
-        best = cursor;
-      }
-      cursor = cursor.parentElement;
-    }
-
-    return best;
-  }
-
   function sectionFor(link, container) {
     const range = document.createRange();
     range.setStart(container, 0);
@@ -72,12 +57,27 @@
     return "";
   }
 
+  function itemTextForLink(link, nextLink, container) {
+    const title = normalizeText(link.innerText || link.textContent);
+    const range = document.createRange();
+    range.setStartAfter(link);
+
+    if (nextLink) {
+      range.setEndBefore(nextLink);
+    } else {
+      range.setEnd(container, container.childNodes.length);
+    }
+
+    const details = normalizeText(range.cloneContents().textContent || "");
+    return normalizeText(`${title} ${details}`);
+  }
+
   function extractDueText(blockText) {
     const patterns = [
-      /\b\d+\s+days?\s+overdue\b/i,
       /\bDue\s+(?:Today|Tomorrow)(?:,\s*)?(?:[^A-Z]*?\d{1,2}:\d{2}\s*(?:am|pm))?/i,
       /\bDue\s+(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}(?:\s+at\s+\d{1,2}:\d{2}\s*(?:am|pm))?/i,
-      /\bDue\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}(?:\s+at\s+\d{1,2}:\d{2}\s*(?:am|pm))?/i
+      /\bDue\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}(?:\s+at\s+\d{1,2}:\d{2}\s*(?:am|pm))?/i,
+      /\b\d+\s+days?\s+overdue\b/i
     ];
 
     for (const pattern of patterns) {
@@ -148,18 +148,24 @@
     const container = findToDoContainer();
     if (!container) return [];
 
-    const links = Array.from(container.querySelectorAll("a")).filter((link) => {
+    const candidateLinks = Array.from(container.querySelectorAll("a")).filter((link) => {
       const title = normalizeText(link.innerText || link.textContent);
       if (!title || title.toLowerCase() === "to do") return false;
-      return /(\bDue\b|\boverdue\b)/i.test(getVisibleText(nearestTaskBlock(link, container)));
+      return title.length > 2;
     });
 
-    const tasks = links.map((link) => {
-      const block = nearestTaskBlock(link, container);
-      const blockText = getVisibleText(block);
+    const links = candidateLinks.filter((link, index) => {
+      const blockText = itemTextForLink(link, candidateLinks[index + 1], container);
+      return /(\bDue\b|\boverdue\b)/i.test(blockText);
+    });
+
+    const tasks = links.map((link, index) => {
+      const nextLink = candidateLinks[candidateLinks.indexOf(link) + 1] || null;
+      const blockText = itemTextForLink(link, nextLink, container);
       const title = normalizeText(link.innerText || link.textContent);
       const dueText = extractDueText(blockText);
-      const status = sectionFor(link, container) || (/overdue/i.test(dueText) ? "Overdue" : "Upcoming");
+      const section = sectionFor(link, container);
+      const status = section || (/overdue/i.test(dueText) ? "Overdue" : "Upcoming");
       return {
         id: "",
         legacyId: "",
@@ -186,7 +192,8 @@
   function saveTasks(tasks) {
     chrome.storage.local.get([STORAGE_KEY], (stored) => {
       const existing = Array.isArray(stored[STORAGE_KEY]) ? stored[STORAGE_KEY] : [];
-      const byId = new Map(existing.map((task) => [task.id, task]));
+      const retained = existing.filter((task) => task.source !== "Schoology To Do");
+      const byId = new Map(retained.map((task) => [task.id, task]));
       for (const task of tasks) {
         byId.set(task.id, { ...byId.get(task.id), ...task });
       }

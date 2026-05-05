@@ -326,7 +326,7 @@ function syncCurrentTab() {
         return;
       }
 
-      state.tasks = mergeTasks(state.tasks, response.tasks || []);
+      state.tasks = replaceSyncedTasks(state.tasks, response.tasks || []);
       chrome.storage.local.set({ [STORAGE_KEY]: state.tasks }, () => {
         elements.syncStatus.textContent = `Captured ${response.tasks.length} item${response.tasks.length === 1 ? "" : "s"}.`;
         elements.syncButton.disabled = false;
@@ -351,6 +351,10 @@ function mergeTasks(existing, incoming) {
     byId.set(normalized.id, { ...byId.get(normalized.id), ...normalized });
   }
   return Array.from(byId.values());
+}
+
+function replaceSyncedTasks(existing, incoming) {
+  return mergeTasks(existing.filter((task) => task.source !== "Schoology To Do"), incoming);
 }
 
 function clearSavedData() {
