@@ -122,7 +122,25 @@
     return "Unknown course";
   }
 
+  function stableUrl(url) {
+    if (!url) return "";
+    try {
+      const parsed = new URL(url);
+      parsed.hash = "";
+      parsed.search = "";
+      return parsed.toString().toLowerCase();
+    } catch (_error) {
+      return url.split("#")[0].split("?")[0].toLowerCase();
+    }
+  }
+
   function taskId(task) {
+    const urlKey = stableUrl(task.url);
+    if (urlKey) return `url:${urlKey}`;
+    return `text:${[task.title, task.course].join("|").toLowerCase()}`;
+  }
+
+  function legacyTaskId(task) {
     return [task.title, task.course, task.dueText].join("|").toLowerCase();
   }
 
@@ -144,6 +162,7 @@
       const status = sectionFor(link, container) || (/overdue/i.test(dueText) ? "Overdue" : "Upcoming");
       return {
         id: "",
+        legacyId: "",
         title,
         course: extractCourse(blockText, title, dueText),
         dueText,
@@ -158,6 +177,7 @@
     const unique = new Map();
     for (const task of tasks) {
       task.id = taskId(task);
+      task.legacyId = legacyTaskId(task);
       unique.set(task.id, task);
     }
     return Array.from(unique.values());

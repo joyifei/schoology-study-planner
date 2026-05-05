@@ -20,6 +20,49 @@ let state = {
   done: {}
 };
 
+function stableUrl(url) {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    parsed.search = "";
+    return parsed.toString().toLowerCase();
+  } catch (_error) {
+    return url.split("#")[0].split("?")[0].toLowerCase();
+  }
+}
+
+function stableTaskId(task) {
+  const urlKey = stableUrl(task.url);
+  if (urlKey) return `url:${urlKey}`;
+  return `text:${[task.title || "", task.course || ""].join("|").toLowerCase()}`;
+}
+
+function legacyTaskId(task) {
+  return [task.title || "", task.course || "", task.dueText || ""].join("|").toLowerCase();
+}
+
+function legacyDonePrefix(task) {
+  return `${[task.title || "", task.course || ""].join("|").toLowerCase()}|`;
+}
+
+function doneKeysFor(task) {
+  return Array.from(new Set([task.id, stableTaskId(task), task.legacyId, legacyTaskId(task)].filter(Boolean)));
+}
+
+function getDoneEntry(task) {
+  const exactMatch = doneKeysFor(task).map((key) => state.done[key]).find(Boolean);
+  if (exactMatch) return exactMatch;
+
+  const legacyPrefix = legacyDonePrefix(task);
+  const legacyKey = Object.keys(state.done).find((key) => key.startsWith(legacyPrefix));
+  return legacyKey ? state.done[legacyKey] : null;
+}
+
+function isDone(task) {
+  return Boolean(getDoneEntry(task));
+}
+
 function formatDateTime(iso, fallback) {
   if (!iso) return fallback || "Unknown";
   const date = new Date(iso);
@@ -58,7 +101,7 @@ function urgencyLabel(task) {
 
 function taskPriority(task) {
   const days = daysUntil(task);
-  if (state.done[task.id]) return 1000;
+  if (isDone(task)) return 1000;
   if (days < 0) return 0;
   if (days === 0) return 1;
   if (days === 1) return 2;
@@ -80,7 +123,7 @@ function filteredTasks() {
 }
 
 function renderSummary() {
-  const active = state.tasks.filter((task) => !state.done[task.id]);
+  const active = state.tasks.filter((task) => !isDone(task));
   elements.overdueCount.textContent = String(active.filter((task) => daysUntil(task) < 0).length);
   elements.todayCount.textContent = String(active.filter((task) => daysUntil(task) === 0).length);
   elements.weekCount.textContent = String(active.filter((task) => daysUntil(task) >= 0 && daysUntil(task) <= 7).length);
@@ -100,7 +143,7 @@ function renderTable() {
 
   for (const task of tasks) {
     const row = document.createElement("tr");
-    if (state.done[task.id]) row.classList.add("done-row");
+    if (isDone(task)) row.classList.add("done-row");
 
     const course = document.createElement("td");
     course.textContent = task.course || "Unknown course";
@@ -119,16 +162,17 @@ function renderTable() {
 
     const status = document.createElement("td");
     const badge = document.createElement("span");
-    badge.className = `badge ${urgencyLabel(task).toLowerCase().replace(/\s+/g, "-")}`;
-    badge.textContent = urgencyLabel(task);
+    const label = isDone(task) ? "Done" : urgencyLabel(task);
+    badge.className = `badge ${label.toLowerCase().replace(/\s+/g, "-")}`;
+    badge.textContent = label;
     status.append(badge);
 
     const done = document.createElement("td");
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
-    checkbox.checked = Boolean(state.done[task.id]);
+    checkbox.checked = isDone(task);
     checkbox.ariaLabel = `Mark ${task.title} done`;
-    checkbox.addEventListener("change", () => toggleDone(task.id, checkbox.checked));
+    checkbox.addEventListener("change", () => toggleDone(task, checkbox.checked));
     done.append(checkbox);
 
     row.append(course, title, due, status, done);
@@ -139,7 +183,7 @@ function renderTable() {
 function renderPlan() {
   elements.planList.replaceChildren();
   const active = state.tasks
-    .filter((task) => !state.done[task.id])
+    .filter((task) => !isDone(task))
     .sort((a, b) => taskPriority(a) - taskPriority(b))
     .slice(0, 5);
 
@@ -172,9 +216,24 @@ function load() {
   });
 }
 
-function toggleDone(id, checked) {
-  state.done = { ...state.done, [id]: checked };
-  if (!checked) delete state.done[id];
+function toggleDone(task, checked) {
+  const keys = doneKeysFor(task);
+  const primaryKey = stableTaskId(task);
+  const legacyPrefix = legacyDonePrefix(task);
+  state.done = { ...state.done };
+
+  for (const key of keys) delete state.done[key];
+  for (const key of Object.keys(state.done)) {
+    if (key.startsWith(legacyPrefix)) delete state.done[key];
+  }
+  if (checked) {
+    state.done[primaryKey] = {
+      doneAt: new Date().toISOString(),
+      title: task.title || "",
+      course: task.course || ""
+    };
+  }
+
   chrome.storage.local.set({ [DONE_KEY]: state.done }, render);
 }
 
@@ -207,8 +266,19 @@ function syncCurrentTab() {
 }
 
 function mergeTasks(existing, incoming) {
-  const byId = new Map(existing.map((task) => [task.id, task]));
-  for (const task of incoming) byId.set(task.id, { ...byId.get(task.id), ...task });
+  const normalize = (task) => ({
+    ...task,
+    id: stableTaskId(task),
+    legacyId: task.legacyId || legacyTaskId(task)
+  });
+  const byId = new Map(existing.map((task) => {
+    const normalized = normalize(task);
+    return [normalized.id, normalized];
+  }));
+  for (const task of incoming) {
+    const normalized = normalize(task);
+    byId.set(normalized.id, { ...byId.get(normalized.id), ...normalized });
+  }
   return Array.from(byId.values());
 }
 

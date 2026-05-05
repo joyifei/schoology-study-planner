@@ -228,6 +228,11 @@ a:hover {
   color: var(--red);
 }
 
+.badge.done {
+  background: #e7f4ec;
+  color: var(--green);
+}
+
 .badge.today {
   background: #fff4d6;
   color: var(--amber);

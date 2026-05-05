@@ -7,7 +7,7 @@ A Chrome extension that turns Schoology's right-side **To Do / Upcoming** panel 
 - Reads visible homework items from the current Schoology page.
 - Captures assignment title, course, due text, due date when it can be parsed, and overdue/upcoming status.
 - Saves the latest captured homework locally in Chrome storage.
-- Lets a parent mark assignments done inside the extension.
+- Lets a parent mark assignments done inside the extension, and keeps that status across popup closes, browser restarts, and later syncs.
 - Builds a lightweight "Today Plan" ordered by overdue and soonest due items.
 
 ## Install Locally
@@ -23,6 +23,8 @@ A Chrome extension that turns Schoology's right-side **To Do / Upcoming** panel 
 This is a first working prototype. It reads the Schoology page after you are already logged in. It does not store your Schoology password, bypass login, or send student data to any server.
 
 Because schools can customize Schoology and Schoology can change its markup, the extractor uses visible text and section labels instead of relying on one exact CSS selector. If your school's page structure differs, update `src/contentScript.js`.
+
+Done status is matched to a stable Schoology assignment URL when one is available. If there is no URL, it falls back to the assignment title and course.
 
 ## Privacy
 
