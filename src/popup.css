@@ -196,9 +196,13 @@ td:nth-child(3) {
   color: var(--muted);
 }
 
-td:nth-child(4),
-td:nth-child(5) {
+td:nth-child(4) {
   width: 76px;
+}
+
+td:nth-child(5),
+td:nth-child(6) {
+  width: 64px;
 }
 
 a {
@@ -256,6 +260,28 @@ a:hover {
 .empty-state {
   padding: 18px 4px 4px;
   color: var(--muted);
+}
+
+.duration-input {
+  width: 54px;
+  min-height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  text-align: right;
+}
+
+.duration-input:focus {
+  border-color: var(--blue);
+  outline: 2px solid rgb(29 117 189 / 20%);
+}
+
+.plan-total {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .plan-list {

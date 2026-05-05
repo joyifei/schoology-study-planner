@@ -1,5 +1,6 @@
 const STORAGE_KEY = "schoologyStudyPlanner.tasks";
 const DONE_KEY = "schoologyStudyPlanner.done";
+const DURATION_KEY = "schoologyStudyPlanner.durations";
 
 const elements = {
   syncButton: document.querySelector("#syncButton"),
@@ -12,12 +13,14 @@ const elements = {
   filterSelect: document.querySelector("#filterSelect"),
   taskTable: document.querySelector("#taskTable"),
   emptyState: document.querySelector("#emptyState"),
+  planTotal: document.querySelector("#planTotal"),
   planList: document.querySelector("#planList")
 };
 
 let state = {
   tasks: [],
-  done: {}
+  done: {},
+  durations: {}
 };
 
 function stableUrl(url) {
@@ -61,6 +64,34 @@ function getDoneEntry(task) {
 
 function isDone(task) {
   return Boolean(getDoneEntry(task));
+}
+
+function defaultDuration(task) {
+  const days = daysUntil(task);
+  if (days < 0) return 40;
+  if (days === 0) return 35;
+  if (days === 1) return 30;
+  return 25;
+}
+
+function durationKeysFor(task) {
+  return doneKeysFor(task);
+}
+
+function getDurationEntry(task) {
+  const exactMatch = durationKeysFor(task).map((key) => state.durations[key]).find(Boolean);
+  if (exactMatch) return exactMatch;
+
+  const legacyPrefix = legacyDonePrefix(task);
+  const legacyKey = Object.keys(state.durations).find((key) => key.startsWith(legacyPrefix));
+  return legacyKey ? state.durations[legacyKey] : null;
+}
+
+function estimatedMinutes(task) {
+  const entry = getDurationEntry(task);
+  const rawMinutes = typeof entry === "number" ? entry : entry?.minutes;
+  const minutes = Number.parseInt(rawMinutes, 10);
+  return Number.isFinite(minutes) && minutes > 0 ? minutes : defaultDuration(task);
 }
 
 function formatDateTime(iso, fallback) {
@@ -167,6 +198,19 @@ function renderTable() {
     badge.textContent = label;
     status.append(badge);
 
+    const duration = document.createElement("td");
+    const durationInput = document.createElement("input");
+    durationInput.className = "duration-input";
+    durationInput.type = "number";
+    durationInput.min = "5";
+    durationInput.max = "240";
+    durationInput.step = "5";
+    durationInput.value = String(estimatedMinutes(task));
+    durationInput.ariaLabel = `Estimated minutes for ${task.title}`;
+    durationInput.addEventListener("change", () => updateDuration(task, durationInput.value));
+    durationInput.addEventListener("blur", () => updateDuration(task, durationInput.value));
+    duration.append(durationInput);
+
     const done = document.createElement("td");
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
@@ -175,7 +219,7 @@ function renderTable() {
     checkbox.addEventListener("change", () => toggleDone(task, checkbox.checked));
     done.append(checkbox);
 
-    row.append(course, title, due, status, done);
+    row.append(course, title, due, status, duration, done);
     elements.taskTable.append(row);
   }
 }
@@ -188,16 +232,23 @@ function renderPlan() {
     .slice(0, 5);
 
   if (active.length === 0) {
+    elements.planTotal.textContent = "";
     const item = document.createElement("li");
     item.textContent = "Nothing urgent saved. Sync Schoology or enjoy the breathing room.";
     elements.planList.append(item);
     return;
   }
 
+  const totalMinutes = active.reduce((sum, task) => sum + estimatedMinutes(task), 0);
+  elements.planTotal.textContent = `${totalMinutes} min total`;
+
   active.forEach((task, index) => {
     const item = document.createElement("li");
-    const minutes = daysUntil(task) <= 0 ? 35 : 25;
-    item.innerHTML = `<strong>${index + 1}. ${task.course || "Course"}</strong><span>${minutes} min - ${task.title}</span>`;
+    const title = document.createElement("strong");
+    title.textContent = `${index + 1}. ${task.course || "Course"}`;
+    const detail = document.createElement("span");
+    detail.textContent = `${estimatedMinutes(task)} min - ${task.title}`;
+    item.append(title, detail);
     elements.planList.append(item);
   });
 }
@@ -209,9 +260,10 @@ function render() {
 }
 
 function load() {
-  chrome.storage.local.get([STORAGE_KEY, DONE_KEY], (stored) => {
+  chrome.storage.local.get([STORAGE_KEY, DONE_KEY, DURATION_KEY], (stored) => {
     state.tasks = Array.isArray(stored[STORAGE_KEY]) ? stored[STORAGE_KEY] : [];
     state.done = stored[DONE_KEY] || {};
+    state.durations = stored[DURATION_KEY] || {};
     render();
   });
 }
@@ -235,6 +287,29 @@ function toggleDone(task, checked) {
   }
 
   chrome.storage.local.set({ [DONE_KEY]: state.done }, render);
+}
+
+function updateDuration(task, value) {
+  const minutes = Math.min(240, Math.max(5, Math.round(Number.parseInt(value, 10) / 5) * 5));
+  const safeMinutes = Number.isFinite(minutes) ? minutes : defaultDuration(task);
+  const keys = durationKeysFor(task);
+  const primaryKey = stableTaskId(task);
+  const legacyPrefix = legacyDonePrefix(task);
+  state.durations = { ...state.durations };
+
+  for (const key of keys) delete state.durations[key];
+  for (const key of Object.keys(state.durations)) {
+    if (key.startsWith(legacyPrefix)) delete state.durations[key];
+  }
+
+  state.durations[primaryKey] = {
+    minutes: safeMinutes,
+    updatedAt: new Date().toISOString(),
+    title: task.title || "",
+    course: task.course || ""
+  };
+
+  chrome.storage.local.set({ [DURATION_KEY]: state.durations }, render);
 }
 
 function syncCurrentTab() {
@@ -283,8 +358,8 @@ function mergeTasks(existing, incoming) {
 }
 
 function clearSavedData() {
-  chrome.storage.local.remove([STORAGE_KEY, DONE_KEY], () => {
-    state = { tasks: [], done: {} };
+  chrome.storage.local.remove([STORAGE_KEY, DONE_KEY, DURATION_KEY], () => {
+    state = { tasks: [], done: {}, durations: {} };
     elements.syncStatus.textContent = "Saved homework cleared.";
     render();
   });
