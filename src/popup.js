@@ -108,6 +108,11 @@ function formatDateTime(iso, fallback) {
   }).format(date);
 }
 
+function formatPlanDue(task) {
+  const due = formatDateTime(task.dueAt, task.dueText);
+  return due && due !== "Unknown" ? due.replace(/^Due\s+/i, "") : "No due date";
+}
+
 function startOfDay(date) {
   const copy = new Date(date);
   copy.setHours(0, 0, 0, 0);
@@ -248,7 +253,7 @@ function renderPlan() {
     const title = document.createElement("strong");
     title.textContent = `${index + 1}. ${task.course || "Course"}`;
     const detail = document.createElement("span");
-    detail.textContent = `${estimatedMinutes(task)} min - ${task.title}`;
+    detail.textContent = `${estimatedMinutes(task)} min - ${task.title} - due ${formatPlanDue(task)}`;
     item.append(title, detail);
     elements.planList.append(item);
   });
