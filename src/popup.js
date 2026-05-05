@@ -1,6 +1,7 @@
 const STORAGE_KEY = "schoologyStudyPlanner.tasks";
 const DONE_KEY = "schoologyStudyPlanner.done";
 const DURATION_KEY = "schoologyStudyPlanner.durations";
+const PLAN_KEY = "schoologyStudyPlanner.plan";
 const SYNC_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SYNC_V2";
 
 const elements = {
@@ -21,7 +22,8 @@ const elements = {
 let state = {
   tasks: [],
   done: {},
-  durations: {}
+  durations: {},
+  plan: {}
 };
 
 function stableUrl(url) {
@@ -93,6 +95,34 @@ function estimatedMinutes(task) {
   const rawMinutes = typeof entry === "number" ? entry : entry?.minutes;
   const minutes = Number.parseInt(rawMinutes, 10);
   return Number.isFinite(minutes) && minutes > 0 ? minutes : defaultDuration(task);
+}
+
+function planKeysFor(task) {
+  return durationKeysFor(task);
+}
+
+function getPlanEntry(task) {
+  return planKeysFor(task).map((key) => state.plan[key]).find((entry) => entry !== undefined) ?? null;
+}
+
+function defaultPlanIds() {
+  return new Set(
+    state.tasks
+      .filter((task) => !isDone(task))
+      .sort((a, b) => taskPriority(a) - taskPriority(b))
+      .slice(0, 5)
+      .map((task) => stableTaskId(task))
+  );
+}
+
+function hasCustomPlan() {
+  return Object.keys(state.plan).length > 0;
+}
+
+function isPlanned(task, defaultIds = defaultPlanIds()) {
+  const entry = getPlanEntry(task);
+  if (entry) return Boolean(entry.included);
+  return defaultIds.has(stableTaskId(task));
 }
 
 function formatDateTime(iso, fallback) {
@@ -217,6 +247,15 @@ function renderTable() {
     durationInput.addEventListener("blur", () => updateDuration(task, durationInput.value));
     duration.append(durationInput);
 
+    const plan = document.createElement("td");
+    const planCheckbox = document.createElement("input");
+    planCheckbox.type = "checkbox";
+    planCheckbox.checked = isPlanned(task);
+    planCheckbox.disabled = isDone(task);
+    planCheckbox.ariaLabel = `Include ${task.title} in today's plan`;
+    planCheckbox.addEventListener("change", () => togglePlan(task, planCheckbox.checked));
+    plan.append(planCheckbox);
+
     const done = document.createElement("td");
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
@@ -225,22 +264,24 @@ function renderTable() {
     checkbox.addEventListener("change", () => toggleDone(task, checkbox.checked));
     done.append(checkbox);
 
-    row.append(course, title, due, status, duration, done);
+    row.append(course, title, due, status, duration, plan, done);
     elements.taskTable.append(row);
   }
 }
 
 function renderPlan() {
   elements.planList.replaceChildren();
+  const defaultIds = defaultPlanIds();
   const active = state.tasks
     .filter((task) => !isDone(task))
+    .filter((task) => isPlanned(task, defaultIds))
     .sort((a, b) => taskPriority(a) - taskPriority(b))
-    .slice(0, 5);
+    .slice(0, 12);
 
   if (active.length === 0) {
     elements.planTotal.textContent = "";
     const item = document.createElement("li");
-    item.textContent = "Nothing urgent saved. Sync Schoology or enjoy the breathing room.";
+    item.textContent = hasCustomPlan() ? "No assignments selected for today's plan." : "Nothing urgent saved. Sync Schoology or enjoy the breathing room.";
     elements.planList.append(item);
     return;
   }
@@ -266,10 +307,11 @@ function render() {
 }
 
 function load() {
-  chrome.storage.local.get([STORAGE_KEY, DONE_KEY, DURATION_KEY], (stored) => {
+  chrome.storage.local.get([STORAGE_KEY, DONE_KEY, DURATION_KEY, PLAN_KEY], (stored) => {
     state.tasks = Array.isArray(stored[STORAGE_KEY]) ? stored[STORAGE_KEY] : [];
     state.done = stored[DONE_KEY] || {};
     state.durations = stored[DURATION_KEY] || {};
+    state.plan = stored[PLAN_KEY] || {};
     render();
   });
 }
@@ -312,6 +354,22 @@ function updateDuration(task, value) {
   };
 
   chrome.storage.local.set({ [DURATION_KEY]: state.durations }, render);
+}
+
+function togglePlan(task, included) {
+  const keys = planKeysFor(task);
+  const primaryKey = stableTaskId(task);
+  state.plan = { ...state.plan };
+
+  for (const key of keys) delete state.plan[key];
+  state.plan[primaryKey] = {
+    included,
+    updatedAt: new Date().toISOString(),
+    title: task.title || "",
+    course: task.course || ""
+  };
+
+  chrome.storage.local.set({ [PLAN_KEY]: state.plan }, render);
 }
 
 function syncCurrentTab() {
@@ -372,8 +430,8 @@ function replaceSyncedTasks(existing, incoming) {
 }
 
 function clearSavedData() {
-  chrome.storage.local.remove([STORAGE_KEY, DONE_KEY, DURATION_KEY], () => {
-    state = { tasks: [], done: {}, durations: {} };
+  chrome.storage.local.remove([STORAGE_KEY, DONE_KEY, DURATION_KEY, PLAN_KEY], () => {
+    state = { tasks: [], done: {}, durations: {}, plan: {} };
     elements.syncStatus.textContent = "Saved homework cleared.";
     render();
   });

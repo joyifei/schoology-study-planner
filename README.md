@@ -9,6 +9,7 @@ A Chrome extension that turns Schoology's right-side **To Do / Upcoming** panel 
 - Saves the latest captured homework locally in Chrome storage.
 - Lets a parent mark assignments done inside the extension, and keeps that status across popup closes, browser restarts, and later syncs.
 - Lets a parent edit the estimated minutes for each assignment.
+- Lets a parent add or remove assignments from Today Plan.
 - Builds a lightweight "Today Plan" ordered by overdue and soonest due items, using the saved duration estimates.
 
 ## Install Locally
