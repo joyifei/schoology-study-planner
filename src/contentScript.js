@@ -136,7 +136,7 @@
 
   function taskId(task) {
     const urlKey = stableUrl(task.url);
-    if (urlKey) return `url:${urlKey}`;
+    if (urlKey) return `url-text:${[urlKey, task.title, task.course].join("|").toLowerCase()}`;
     return `text:${[task.title, task.course].join("|").toLowerCase()}`;
   }
 

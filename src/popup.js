@@ -37,8 +37,13 @@ function stableUrl(url) {
 
 function stableTaskId(task) {
   const urlKey = stableUrl(task.url);
-  if (urlKey) return `url:${urlKey}`;
+  if (urlKey) return `url-text:${[urlKey, task.title || "", task.course || ""].join("|").toLowerCase()}`;
   return `text:${[task.title || "", task.course || ""].join("|").toLowerCase()}`;
+}
+
+function urlOnlyTaskId(task) {
+  const urlKey = stableUrl(task.url);
+  return urlKey ? `url:${urlKey}` : "";
 }
 
 function legacyTaskId(task) {
@@ -50,7 +55,7 @@ function legacyDonePrefix(task) {
 }
 
 function doneKeysFor(task) {
-  return Array.from(new Set([task.id, stableTaskId(task), task.legacyId, legacyTaskId(task)].filter(Boolean)));
+  return Array.from(new Set([task.id, stableTaskId(task), urlOnlyTaskId(task), task.legacyId, legacyTaskId(task)].filter(Boolean)));
 }
 
 function getDoneEntry(task) {
@@ -75,16 +80,11 @@ function defaultDuration(task) {
 }
 
 function durationKeysFor(task) {
-  return doneKeysFor(task);
+  return Array.from(new Set([task.id, stableTaskId(task), urlOnlyTaskId(task), task.legacyId, legacyTaskId(task)].filter(Boolean)));
 }
 
 function getDurationEntry(task) {
-  const exactMatch = durationKeysFor(task).map((key) => state.durations[key]).find(Boolean);
-  if (exactMatch) return exactMatch;
-
-  const legacyPrefix = legacyDonePrefix(task);
-  const legacyKey = Object.keys(state.durations).find((key) => key.startsWith(legacyPrefix));
-  return legacyKey ? state.durations[legacyKey] : null;
+  return durationKeysFor(task).map((key) => state.durations[key]).find(Boolean) || null;
 }
 
 function estimatedMinutes(task) {
@@ -294,13 +294,9 @@ function updateDuration(task, value) {
   const safeMinutes = Number.isFinite(minutes) ? minutes : defaultDuration(task);
   const keys = durationKeysFor(task);
   const primaryKey = stableTaskId(task);
-  const legacyPrefix = legacyDonePrefix(task);
   state.durations = { ...state.durations };
 
   for (const key of keys) delete state.durations[key];
-  for (const key of Object.keys(state.durations)) {
-    if (key.startsWith(legacyPrefix)) delete state.durations[key];
-  }
 
   state.durations[primaryKey] = {
     minutes: safeMinutes,
