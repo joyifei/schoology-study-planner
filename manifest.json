@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Schoology Study Planner",
+  "description": "Turn Schoology Upcoming and To Do items into a parent-friendly homework table and daily study plan.",
+  "version": "0.1.0",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["*://*.schoology.com/*"],
+  "action": {
+    "default_title": "Schoology Study Planner",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.schoology.com/*"],
+      "js": ["src/contentScript.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
