@@ -1,6 +1,7 @@
 const STORAGE_KEY = "schoologyStudyPlanner.tasks";
 const DONE_KEY = "schoologyStudyPlanner.done";
 const DURATION_KEY = "schoologyStudyPlanner.durations";
+const SYNC_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SYNC_V2";
 
 const elements = {
   syncButton: document.querySelector("#syncButton"),
@@ -319,18 +320,26 @@ function syncCurrentTab() {
       return;
     }
 
-    chrome.tabs.sendMessage(tab.id, { type: "SCHOOLGY_STUDY_PLANNER_SYNC" }, (response) => {
-      if (chrome.runtime.lastError || !response?.ok) {
+    chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["src/contentScript.js"] }, () => {
+      if (chrome.runtime.lastError) {
         elements.syncStatus.textContent = "Open a Schoology page, then click Sync.";
         elements.syncButton.disabled = false;
         return;
       }
 
-      state.tasks = replaceSyncedTasks(state.tasks, response.tasks || []);
-      chrome.storage.local.set({ [STORAGE_KEY]: state.tasks }, () => {
-        elements.syncStatus.textContent = `Captured ${response.tasks.length} item${response.tasks.length === 1 ? "" : "s"}.`;
-        elements.syncButton.disabled = false;
-        render();
+      chrome.tabs.sendMessage(tab.id, { type: SYNC_MESSAGE }, (response) => {
+        if (chrome.runtime.lastError || !response?.ok) {
+          elements.syncStatus.textContent = "Open a Schoology page, then click Sync.";
+          elements.syncButton.disabled = false;
+          return;
+        }
+
+        state.tasks = replaceSyncedTasks(state.tasks, response.tasks || []);
+        chrome.storage.local.set({ [STORAGE_KEY]: state.tasks }, () => {
+          elements.syncStatus.textContent = `Captured ${response.tasks.length} item${response.tasks.length === 1 ? "" : "s"}.`;
+          elements.syncButton.disabled = false;
+          render();
+        });
       });
     });
   });

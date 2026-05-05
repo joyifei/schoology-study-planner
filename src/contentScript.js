@@ -1,5 +1,6 @@
 (function () {
   const STORAGE_KEY = "schoologyStudyPlanner.tasks";
+  const SYNC_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SYNC_V2";
 
   function normalizeText(value) {
     return (value || "").replace(/\s+/g, " ").trim();
@@ -45,31 +46,20 @@
       .sort((a, b) => a.element.innerText.length - b.element.innerText.length || b.score - a.score)[0]?.element || null;
   }
 
-  function sectionFor(link, container) {
-    const range = document.createRange();
-    range.setStart(container, 0);
-    range.setEndBefore(link);
-    const previousText = normalizeText(range.cloneContents().textContent || "").toLowerCase();
-    const overdueIndex = previousText.lastIndexOf("overdue");
-    const upcomingIndex = previousText.lastIndexOf("upcoming");
+  function visibleLines(container) {
+    return (container.innerText || container.textContent || "")
+      .split(/\r?\n/)
+      .map(normalizeText)
+      .filter(Boolean);
+  }
+
+  function sectionForLine(lines, lineIndex) {
+    const previousLabels = lines.slice(0, lineIndex).map((line) => line.toLowerCase());
+    const overdueIndex = previousLabels.lastIndexOf("overdue");
+    const upcomingIndex = previousLabels.lastIndexOf("upcoming");
     if (overdueIndex > upcomingIndex) return "Overdue";
     if (upcomingIndex >= 0) return "Upcoming";
     return "";
-  }
-
-  function itemTextForLink(link, nextLink, container) {
-    const title = normalizeText(link.innerText || link.textContent);
-    const range = document.createRange();
-    range.setStartAfter(link);
-
-    if (nextLink) {
-      range.setEndBefore(nextLink);
-    } else {
-      range.setEnd(container, container.childNodes.length);
-    }
-
-    const details = normalizeText(range.cloneContents().textContent || "");
-    return normalizeText(`${title} ${details}`);
   }
 
   function extractDueText(blockText) {
@@ -122,6 +112,33 @@
     return "Unknown course";
   }
 
+  function findLineIndex(lines, title, startIndex) {
+    const normalizedTitle = normalizeText(title).toLowerCase();
+    for (let index = startIndex; index < lines.length; index += 1) {
+      if (lines[index].toLowerCase() === normalizedTitle) return index;
+    }
+    for (let index = startIndex; index < lines.length; index += 1) {
+      if (lines[index].toLowerCase().includes(normalizedTitle)) return index;
+    }
+    return -1;
+  }
+
+  function taskDetailsFromLines(lines, titleIndex, nextTitleIndex) {
+    const endIndex = nextTitleIndex >= 0 ? nextTitleIndex : lines.length;
+    const detailLines = lines.slice(titleIndex + 1, endIndex).filter((line) => !/^(overdue|upcoming)$/i.test(line));
+    const dueLineIndex = detailLines.findIndex((line) => /(\bDue\b|\boverdue\b)/i.test(line));
+    const dueText = dueLineIndex >= 0 ? extractDueText(detailLines[dueLineIndex]) : "";
+    const course = dueLineIndex >= 0 && detailLines[dueLineIndex + 1]
+      ? detailLines[dueLineIndex + 1]
+      : extractCourse(detailLines.join(" "), lines[titleIndex], dueText);
+
+    return {
+      blockText: normalizeText([lines[titleIndex], ...detailLines].join(" ")),
+      dueText,
+      course
+    };
+  }
+
   function stableUrl(url) {
     if (!url) return "";
     try {
@@ -148,37 +165,39 @@
     const container = findToDoContainer();
     if (!container) return [];
 
-    const candidateLinks = Array.from(container.querySelectorAll("a")).filter((link) => {
+    const lines = visibleLines(container);
+    const links = Array.from(container.querySelectorAll("a")).filter((link) => {
       const title = normalizeText(link.innerText || link.textContent);
       if (!title || title.toLowerCase() === "to do") return false;
       return title.length > 2;
     });
 
-    const links = candidateLinks.filter((link, index) => {
-      const blockText = itemTextForLink(link, candidateLinks[index + 1], container);
-      return /(\bDue\b|\boverdue\b)/i.test(blockText);
-    });
-
+    let searchStart = 0;
     const tasks = links.map((link, index) => {
-      const nextLink = candidateLinks[candidateLinks.indexOf(link) + 1] || null;
-      const blockText = itemTextForLink(link, nextLink, container);
       const title = normalizeText(link.innerText || link.textContent);
-      const dueText = extractDueText(blockText);
-      const section = sectionFor(link, container);
-      const status = section || (/overdue/i.test(dueText) ? "Overdue" : "Upcoming");
+      const titleIndex = findLineIndex(lines, title, searchStart);
+      if (titleIndex < 0) return null;
+
+      const nextTitle = links[index + 1] ? normalizeText(links[index + 1].innerText || links[index + 1].textContent) : "";
+      const nextTitleIndex = nextTitle ? findLineIndex(lines, nextTitle, titleIndex + 1) : -1;
+      const details = taskDetailsFromLines(lines, titleIndex, nextTitleIndex);
+      const section = sectionForLine(lines, titleIndex);
+      const status = section || (/overdue/i.test(details.dueText) ? "Overdue" : "Upcoming");
+      searchStart = titleIndex + 1;
+
       return {
         id: "",
         legacyId: "",
         title,
-        course: extractCourse(blockText, title, dueText),
-        dueText,
-        dueAt: parseDueDate(dueText),
+        course: details.course,
+        dueText: details.dueText,
+        dueAt: parseDueDate(details.dueText),
         status,
         url: link.href || "",
         source: "Schoology To Do",
         capturedAt: new Date().toISOString()
       };
-    });
+    }).filter((task) => task && task.dueText);
 
     const unique = new Map();
     for (const task of tasks) {
@@ -202,7 +221,7 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type !== "SCHOOLGY_STUDY_PLANNER_SYNC") return false;
+    if (message?.type !== SYNC_MESSAGE) return false;
     const tasks = extractTasks();
     saveTasks(tasks);
     sendResponse({ ok: true, tasks });
