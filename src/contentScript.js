@@ -253,12 +253,13 @@
   }
 
   function extractGradePercentFromText(text) {
+    const withoutWeights = text.replace(/\(\s*\d+(?:\.\d+)?\s*%\s*\)/g, "");
     const patterns = [
       /(?:overall|current|final|course|period|total)[^%\n]{0,80}?(\d{1,3}(?:\.\d+)?)\s*%/i,
       /(\d{1,3}(?:\.\d+)?)\s*%/
     ];
     for (const pattern of patterns) {
-      const match = text.match(pattern);
+      const match = withoutWeights.match(pattern);
       if (!match) continue;
       const value = Number.parseFloat(match[1]);
       if (Number.isFinite(value) && value >= 0 && value <= 110) return value;
@@ -273,7 +274,7 @@
       const line = lines[index];
       const nextLine = lines[index + 1] || "";
       if (
-        /\b(20\d{2}|2\d)\s*(S\d|Q\d|T\d|MP\d)\b/i.test(line) &&
+        isTopLevelGradingPeriodLine(line) &&
         /^\(\s*\d+(?:\.\d+)?\s*%\s*\)$/.test(nextLine)
       ) {
         combined.push(`${line} ${nextLine}`);
@@ -286,6 +287,10 @@
     return combined;
   }
 
+  function isTopLevelGradingPeriodLine(line) {
+    return /\b(?:20\d{2}|2\d)?\s*(?:S\d|Q\d|T\d|MP\d)\b/i.test(line) && !/classwork|assignment|homework|test|quiz|project/i.test(line);
+  }
+
   function extractWeightedGradePeriods(rawLines) {
     const lines = combinedGradeLines(rawLines);
     const periods = [];
@@ -294,7 +299,7 @@
       const line = lines[index];
       if (!/\(\s*\d+(?:\.\d+)?\s*%\s*\)/.test(line)) continue;
       if (/no grading period/i.test(line)) continue;
-      if (!/\b(20\d{2}|2\d)\s*(S\d|Q\d|T\d|MP\d)\b/i.test(line)) continue;
+      if (!isTopLevelGradingPeriodLine(line)) continue;
 
       const weightMatch = line.match(/\(\s*(\d+(?:\.\d+)?)\s*%\s*\)/);
       if (!weightMatch) continue;
