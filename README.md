@@ -31,7 +31,7 @@ Done status is matched to a stable Schoology assignment URL when one is availabl
 
 Duration estimates use the same stable matching. Edit the `Min` field in the homework table; the value is saved immediately and reflected in the Today Plan.
 
-The Grades tab is intentionally semi-automatic. Add each course manually, paste the course Grades page link, and keep level/include settings editable. Later grade extraction can update the display-only Grade and GPA columns.
+The Grades tab is intentionally semi-automatic. Add each course manually, paste the course Grades page link, and keep level/include settings editable. Use `Grab` to read top-level grading-period scores from that course page and calculate the display-only Grade and GPA columns.
 
 ## Privacy
 

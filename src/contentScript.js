@@ -266,6 +266,72 @@
     return null;
   }
 
+  function combinedGradeLines(lines) {
+    const combined = [];
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      const nextLine = lines[index + 1] || "";
+      if (
+        /\b(20\d{2}|2\d)\s*(S\d|Q\d|T\d|MP\d)\b/i.test(line) &&
+        /^\(\s*\d+(?:\.\d+)?\s*%\s*\)$/.test(nextLine)
+      ) {
+        combined.push(`${line} ${nextLine}`);
+        index += 1;
+      } else {
+        combined.push(line);
+      }
+    }
+
+    return combined;
+  }
+
+  function extractWeightedGradePeriods(rawLines) {
+    const lines = combinedGradeLines(rawLines);
+    const periods = [];
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (!/\(\s*\d+(?:\.\d+)?\s*%\s*\)/.test(line)) continue;
+      if (/no grading period/i.test(line)) continue;
+      if (!/\b(20\d{2}|2\d)\s*(S\d|Q\d|T\d|MP\d)\b/i.test(line)) continue;
+
+      const weightMatch = line.match(/\(\s*(\d+(?:\.\d+)?)\s*%\s*\)/);
+      if (!weightMatch) continue;
+      const weight = Number.parseFloat(weightMatch[1]);
+      if (!Number.isFinite(weight) || weight <= 0) continue;
+
+      const afterWeight = line.slice(line.indexOf(weightMatch[0]) + weightMatch[0].length);
+      let scoreMatch = afterWeight.match(/\b(\d{1,3}(?:\.\d+)?)\s*%/);
+      if (!scoreMatch) {
+        for (let lookahead = index + 1; lookahead <= Math.min(index + 3, lines.length - 1); lookahead += 1) {
+          if (/\(\s*\d+(?:\.\d+)?\s*%\s*\)/.test(lines[lookahead])) break;
+          scoreMatch = lines[lookahead].match(/\b(\d{1,3}(?:\.\d+)?)\s*%/);
+          if (scoreMatch) break;
+        }
+      }
+
+      if (!scoreMatch) continue;
+      const score = Number.parseFloat(scoreMatch[1]);
+      if (!Number.isFinite(score) || score < 0 || score > 110) continue;
+
+      periods.push({
+        label: line.replace(/\(\s*\d+(?:\.\d+)?\s*%\s*\).*/, "").trim(),
+        weight,
+        score
+      });
+    }
+
+    return periods;
+  }
+
+  function weightedGradeFromPeriods(periods) {
+    const totalWeight = periods.reduce((sum, period) => sum + period.weight, 0);
+    if (totalWeight <= 0) return null;
+    const weighted = periods.reduce((sum, period) => sum + period.score * period.weight, 0) / totalWeight;
+    return Math.round(weighted * 100) / 100;
+  }
+
   function extractLetterGrade(text) {
     const match = text.match(/\b(A\+|A-|A|B\+|B-|B|C\+|C-|C|D\+|D-|D|F)\b/);
     return match ? match[1] : "";
@@ -278,13 +344,17 @@
       .map((table) => getVisibleText(table))
       .find((text) => /overall|current|final|course|period|total|%/i.test(text));
     const text = preferredText || getVisibleText(document.body);
-    const gradePercent = extractGradePercentFromText(text);
+    const lines = visibleLines(document.body);
+    const gradingPeriods = extractWeightedGradePeriods(lines);
+    const weightedGradePercent = weightedGradeFromPeriods(gradingPeriods);
+    const gradePercent = weightedGradePercent ?? extractGradePercentFromText(text);
     const letterGrade = extractLetterGrade(text);
 
     return {
       ...course,
       gradePercent,
       letterGrade,
+      gradingPeriods,
       scannedAt: new Date().toISOString(),
       sourceUrl: window.location.href
     };

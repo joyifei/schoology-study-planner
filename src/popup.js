@@ -436,6 +436,15 @@ function renderGrades() {
     includeCheckbox.addEventListener("change", () => updateCourse(course.id, { includeInGpa: includeCheckbox.checked }));
     include.append(includeCheckbox);
 
+    const grab = document.createElement("td");
+    const grabButton = document.createElement("button");
+    grabButton.className = "icon-button";
+    grabButton.type = "button";
+    grabButton.textContent = "Grab";
+    grabButton.disabled = !(course.gradePageUrl || course.url);
+    grabButton.addEventListener("click", () => grabCourseGrade(course));
+    grab.append(grabButton);
+
     const actions = document.createElement("td");
     const deleteButton = document.createElement("button");
     deleteButton.className = "icon-button";
@@ -444,7 +453,7 @@ function renderGrades() {
     deleteButton.addEventListener("click", () => deleteCourse(course.id));
     actions.append(deleteButton);
 
-    row.append(name, gradePage, grade, level, gpa, include, actions);
+    row.append(name, gradePage, grade, level, gpa, include, grab, actions);
     elements.gradesTable.append(row);
   }
 }
@@ -634,6 +643,68 @@ function saveCurrentGrade() {
     elements.syncStatus.textContent = grade.gradePercent === null
       ? `Saved ${grade.name}; enter grade manually.`
       : `Saved ${grade.name}: ${grade.gradePercent}%.`;
+  });
+}
+
+function readGradeFromTab(tabId, course) {
+  chrome.scripting.executeScript({ target: { tabId }, files: ["src/contentScript.js"] }, () => {
+    if (chrome.runtime.lastError) {
+      elements.syncStatus.textContent = `Could not read ${course.name}.`;
+      return;
+    }
+
+    chrome.tabs.sendMessage(tabId, { type: SCAN_GRADE_MESSAGE }, (response) => {
+      if (chrome.runtime.lastError || !response?.ok || !response.grade) {
+        elements.syncStatus.textContent = `No grade found for ${course.name}.`;
+        return;
+      }
+
+      const grade = response.grade;
+      updateCourse(course.id, {
+        gradePercent: grade.gradePercent,
+        letterGrade: grade.letterGrade,
+        gradingPeriods: grade.gradingPeriods || [],
+        lastGradeScanAt: grade.scannedAt,
+        sourceUrl: grade.sourceUrl
+      });
+
+      const periodCount = grade.gradingPeriods?.length || 0;
+      elements.syncStatus.textContent = grade.gradePercent == null
+        ? `No grade found for ${course.name}.`
+        : `Updated ${course.name}: ${grade.gradePercent}% from ${periodCount} period${periodCount === 1 ? "" : "s"}.`;
+    });
+  });
+}
+
+function grabCourseGrade(course) {
+  const url = course.gradePageUrl || course.url;
+  if (!url) {
+    elements.syncStatus.textContent = `Add a grade page link for ${course.name}.`;
+    return;
+  }
+
+  elements.syncStatus.textContent = `Opening ${course.name} grade page...`;
+  chrome.tabs.create({ url, active: false }, (tab) => {
+    if (chrome.runtime.lastError || !tab?.id) {
+      elements.syncStatus.textContent = `Could not open grade page for ${course.name}.`;
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      readGradeFromTab(tab.id, course);
+      setTimeout(() => chrome.tabs.remove(tab.id), 1200);
+    }, 8000);
+
+    const listener = (tabId, changeInfo) => {
+      if (tabId !== tab.id || changeInfo.status !== "complete") return;
+      clearTimeout(timeoutId);
+      chrome.tabs.onUpdated.removeListener(listener);
+      readGradeFromTab(tab.id, course);
+      setTimeout(() => chrome.tabs.remove(tab.id), 1200);
+    };
+
+    chrome.tabs.onUpdated.addListener(listener);
   });
 }
 
