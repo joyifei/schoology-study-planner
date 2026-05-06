@@ -5,7 +5,6 @@ const PLAN_KEY = "schoologyStudyPlanner.plan";
 const COURSES_KEY = "schoologyStudyPlanner.courses";
 const GPA_SETTINGS_KEY = "schoologyStudyPlanner.gpaSettings";
 const SYNC_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SYNC_V2";
-const SCAN_COURSES_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SCAN_COURSES_V1";
 const SCAN_GRADE_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SCAN_GRADE_V1";
 
 const elements = {
@@ -24,8 +23,7 @@ const elements = {
   planList: document.querySelector("#planList"),
   tabButtons: Array.from(document.querySelectorAll(".tab-button")),
   tabPanels: Array.from(document.querySelectorAll(".tab-panel")),
-  scanCoursesButton: document.querySelector("#scanCoursesButton"),
-  saveGradeButton: document.querySelector("#saveGradeButton"),
+  addCourseButton: document.querySelector("#addCourseButton"),
   gradesTable: document.querySelector("#gradesTable"),
   gradesEmptyState: document.querySelector("#gradesEmptyState"),
   weightedGpa: document.querySelector("#weightedGpa"),
@@ -162,6 +160,18 @@ function mergeCourses(existing, incoming) {
     byId.set(key, merged);
   }
   return Array.from(byId.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+}
+
+function createManualCourse() {
+  return {
+    id: `manual:${Date.now()}`,
+    name: "New Course",
+    gradePageUrl: "",
+    url: "",
+    includeInGpa: true,
+    level: "regular",
+    createdAt: new Date().toISOString()
+  };
 }
 
 function gradePoints(percent) {
@@ -380,29 +390,27 @@ function renderGrades() {
     const row = document.createElement("tr");
 
     const name = document.createElement("td");
-    const link = document.createElement(course.url ? "a" : "span");
-    link.textContent = course.name || "Untitled course";
-    if (course.url) {
-      link.href = course.url;
-      link.target = "_blank";
-    }
-    name.append(link);
+    const nameInput = document.createElement("input");
+    nameInput.className = "course-input";
+    nameInput.type = "text";
+    nameInput.value = course.name || "";
+    nameInput.placeholder = "Course name";
+    nameInput.ariaLabel = "Course name";
+    nameInput.addEventListener("change", () => updateCourse(course.id, { name: nameInput.value.trim() || "Untitled course" }));
+    name.append(nameInput);
 
-    const section = document.createElement("td");
-    section.textContent = course.section || "";
+    const gradePage = document.createElement("td");
+    const urlInput = document.createElement("input");
+    urlInput.className = "course-url-input";
+    urlInput.type = "url";
+    urlInput.value = course.gradePageUrl || course.url || "";
+    urlInput.placeholder = "https://app.schoology.com/...";
+    urlInput.ariaLabel = `Grade page link for ${course.name}`;
+    urlInput.addEventListener("change", () => updateCourse(course.id, { gradePageUrl: urlInput.value.trim(), url: urlInput.value.trim() }));
+    gradePage.append(urlInput);
 
     const grade = document.createElement("td");
-    const gradeInput = document.createElement("input");
-    gradeInput.className = "grade-input";
-    gradeInput.type = "number";
-    gradeInput.min = "0";
-    gradeInput.max = "110";
-    gradeInput.step = "0.1";
-    gradeInput.value = course.gradePercent ?? "";
-    gradeInput.placeholder = "%";
-    gradeInput.ariaLabel = `Grade percent for ${course.name}`;
-    gradeInput.addEventListener("change", () => updateCourse(course.id, { gradePercent: gradeInput.value ? Number.parseFloat(gradeInput.value) : null }));
-    grade.append(gradeInput);
+    grade.textContent = course.gradePercent == null ? "--" : `${course.gradePercent}%`;
 
     const level = document.createElement("td");
     const levelSelect = document.createElement("select");
@@ -428,7 +436,15 @@ function renderGrades() {
     includeCheckbox.addEventListener("change", () => updateCourse(course.id, { includeInGpa: includeCheckbox.checked }));
     include.append(includeCheckbox);
 
-    row.append(name, section, grade, level, gpa, include);
+    const actions = document.createElement("td");
+    const deleteButton = document.createElement("button");
+    deleteButton.className = "icon-button";
+    deleteButton.type = "button";
+    deleteButton.textContent = "Delete";
+    deleteButton.addEventListener("click", () => deleteCourse(course.id));
+    actions.append(deleteButton);
+
+    row.append(name, gradePage, grade, level, gpa, include, actions);
     elements.gradesTable.append(row);
   }
 }
@@ -480,6 +496,14 @@ function saveGpaSettings() {
 
 function updateCourse(id, patch) {
   saveCourses(state.courses.map((course) => course.id === id ? { ...course, ...patch } : course));
+}
+
+function addCourse() {
+  saveCourses([...state.courses, createManualCourse()]);
+}
+
+function deleteCourse(id) {
+  saveCourses(state.courses.filter((course) => course.id !== id));
 }
 
 function toggleDone(task, checked) {
@@ -598,15 +622,6 @@ function sendSchoologyMessage(type, onResponse) {
   });
 }
 
-function scanCourses() {
-  elements.syncStatus.textContent = "Scanning visible Schoology courses...";
-  sendSchoologyMessage(SCAN_COURSES_MESSAGE, (response) => {
-    const courses = response.courses || [];
-    saveCourses(mergeCourses(state.courses, courses));
-    elements.syncStatus.textContent = `Saved ${courses.length} course${courses.length === 1 ? "" : "s"}.`;
-  });
-}
-
 function saveCurrentGrade() {
   elements.syncStatus.textContent = "Reading current Grades page...";
   sendSchoologyMessage(SCAN_GRADE_MESSAGE, (response) => {
@@ -659,8 +674,7 @@ function clearSavedData() {
 elements.syncButton.addEventListener("click", syncCurrentTab);
 elements.clearButton.addEventListener("click", clearSavedData);
 elements.filterSelect.addEventListener("change", renderTable);
-elements.scanCoursesButton.addEventListener("click", scanCourses);
-elements.saveGradeButton.addEventListener("click", saveCurrentGrade);
+elements.addCourseButton.addEventListener("click", addCourse);
 elements.honorsBonusInput.addEventListener("change", () => {
   state.gpaSettings = { ...state.gpaSettings, honorsBonus: Number.parseFloat(elements.honorsBonusInput.value) || 0 };
   saveGpaSettings();

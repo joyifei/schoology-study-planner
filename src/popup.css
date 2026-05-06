@@ -309,7 +309,8 @@ a:hover {
 }
 
 .level-select,
-.grade-input,
+.course-input,
+.course-url-input,
 .settings-grid input {
   min-height: 30px;
   border: 1px solid var(--line);
@@ -318,14 +319,24 @@ a:hover {
   color: var(--ink);
 }
 
-.grade-input {
-  width: 72px;
+.course-input,
+.course-url-input {
+  width: 100%;
   padding: 0 6px;
-  text-align: right;
 }
 
 .level-select {
   width: 88px;
+}
+
+.icon-button {
+  min-height: 28px;
+  padding: 0 8px;
+  background: transparent;
+  border-color: var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .settings-grid {

@@ -1,7 +1,6 @@
 (function () {
   const STORAGE_KEY = "schoologyStudyPlanner.tasks";
   const SYNC_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SYNC_V2";
-  const SCAN_COURSES_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SCAN_COURSES_V1";
   const SCAN_GRADE_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SCAN_GRADE_V1";
 
   function normalizeText(value) {
@@ -236,48 +235,6 @@
     }
   }
 
-  function extractCourses() {
-    const links = Array.from(document.querySelectorAll("a[href*='/course/']"));
-    const courses = [];
-    const seen = new Set();
-
-    for (const link of links) {
-      const url = courseUrlFromLink(link);
-      const id = courseIdFromUrl(url);
-      const title = normalizeText(link.innerText || link.textContent);
-      if (!id || seen.has(id) || !title || /^courses$/i.test(title)) continue;
-
-      let container = link;
-      while (container.parentElement && container.parentElement !== document.body) {
-        const text = getVisibleText(container.parentElement);
-        if (text.includes(title) && text.length < 500) {
-          container = container.parentElement;
-        } else {
-          break;
-        }
-      }
-
-      const lines = visibleLines(container);
-      const titleIndex = lines.findIndex((line) => line === title || line.includes(title));
-      const section = titleIndex >= 0 && lines[titleIndex + 1] ? lines[titleIndex + 1] : "";
-      const school = titleIndex >= 0 && lines[titleIndex + 2] ? lines[titleIndex + 2] : "";
-
-      seen.add(id);
-      courses.push({
-        id,
-        name: title,
-        section,
-        school,
-        url,
-        includeInGpa: !/(homeroom|study hall|lunch)/i.test(title),
-        level: /(^|\b)(ap|advanced placement)\b/i.test(title) ? "ap" : (/honors/i.test(title) ? "honors" : "regular"),
-        capturedAt: new Date().toISOString()
-      });
-    }
-
-    return courses.sort((a, b) => a.name.localeCompare(b.name));
-  }
-
   function currentCourseFromPage() {
     const pageCourseId = courseIdFromUrl(window.location.href);
     const courseLink = Array.from(document.querySelectorAll("a[href*='/course/']")).find((link) => {
@@ -396,11 +353,6 @@
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === SCAN_COURSES_MESSAGE) {
-      sendResponse({ ok: true, courses: extractCourses() });
-      return true;
-    }
-
     if (message?.type === SCAN_GRADE_MESSAGE) {
       sendResponse({ ok: true, grade: extractCurrentGrade() });
       return true;

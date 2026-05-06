@@ -31,7 +31,7 @@ Done status is matched to a stable Schoology assignment URL when one is availabl
 
 Duration estimates use the same stable matching. Edit the `Min` field in the homework table; the value is saved immediately and reflected in the Today Plan.
 
-The Grades tab is intentionally semi-automatic. Open the Schoology Courses page and click `Scan Courses`, then open an individual course's Grades page and click `Save Current Grade`. GPA weights and course inclusion can be edited in the extension.
+The Grades tab is intentionally semi-automatic. Add each course manually, paste the course Grades page link, and keep level/include settings editable. Later grade extraction can update the display-only Grade and GPA columns.
 
 ## Privacy
 
