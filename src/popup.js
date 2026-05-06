@@ -3,7 +3,6 @@ const DONE_KEY = "schoologyStudyPlanner.done";
 const DURATION_KEY = "schoologyStudyPlanner.durations";
 const PLAN_KEY = "schoologyStudyPlanner.plan";
 const COURSES_KEY = "schoologyStudyPlanner.courses";
-const GPA_SETTINGS_KEY = "schoologyStudyPlanner.gpaSettings";
 const SYNC_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SYNC_V2";
 const SCAN_GRADE_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SCAN_GRADE_V1";
 
@@ -28,9 +27,7 @@ const elements = {
   gradesEmptyState: document.querySelector("#gradesEmptyState"),
   weightedGpa: document.querySelector("#weightedGpa"),
   unweightedGpa: document.querySelector("#unweightedGpa"),
-  gpaCourseCount: document.querySelector("#gpaCourseCount"),
-  honorsBonusInput: document.querySelector("#honorsBonusInput"),
-  apBonusInput: document.querySelector("#apBonusInput")
+  gpaCourseCount: document.querySelector("#gpaCourseCount")
 };
 
 let state = {
@@ -38,10 +35,33 @@ let state = {
   done: {},
   durations: {},
   plan: {},
-  courses: [],
-  gpaSettings: {
-    honorsBonus: 0.5,
-    apBonus: 1.0
+  courses: []
+};
+
+const GPA_CHART = {
+  ap: {
+    100: 5.3, 99: 5.3, 98: 5.3, 97: 5.25, 96: 5.25, 95: 5.25, 94: 5.2, 93: 5.1, 92: 5.0, 91: 4.9, 90: 4.8,
+    89: 4.7, 88: 4.6, 87: 4.5, 86: 4.4, 85: 4.3, 84: 4.2, 83: 4.1, 82: 4.0, 81: 3.9, 80: 3.8,
+    79: 3.7, 78: 3.6, 77: 3.5, 76: 3.4, 75: 3.3, 74: 3.2, 73: 3.1, 72: 3.0, 71: 2.9, 70: 2.8,
+    69: 2.7, 68: 2.6, 67: 2.5, 66: 2.4, 65: 2.3
+  },
+  honors: {
+    100: 5.0, 99: 5.0, 98: 5.0, 97: 4.95, 96: 4.95, 95: 4.95, 94: 4.9, 93: 4.8, 92: 4.7, 91: 4.6, 90: 4.5,
+    89: 4.4, 88: 4.3, 87: 4.2, 86: 4.1, 85: 4.0, 84: 3.9, 83: 3.8, 82: 3.7, 81: 3.6, 80: 3.5,
+    79: 3.4, 78: 3.3, 77: 3.2, 76: 3.1, 75: 3.0, 74: 2.9, 73: 2.8, 72: 2.7, 71: 2.6, 70: 2.5,
+    69: 2.4, 68: 2.3, 67: 2.2, 66: 2.1, 65: 2.0
+  },
+  accelerated: {
+    100: 4.5, 99: 4.5, 98: 4.5, 97: 4.45, 96: 4.45, 95: 4.45, 94: 4.4, 93: 4.3, 92: 4.2, 91: 4.1, 90: 4.0,
+    89: 3.9, 88: 3.8, 87: 3.7, 86: 3.6, 85: 3.5, 84: 3.4, 83: 3.3, 82: 3.2, 81: 3.1, 80: 3.0,
+    79: 2.9, 78: 2.8, 77: 2.7, 76: 2.6, 75: 2.5, 74: 2.4, 73: 2.3, 72: 2.2, 71: 2.1, 70: 2.0,
+    69: 1.9, 68: 1.8, 67: 1.7, 66: 1.6, 65: 1.5
+  },
+  academic: {
+    100: 4.0, 99: 4.0, 98: 4.0, 97: 3.95, 96: 3.95, 95: 3.95, 94: 3.9, 93: 3.8, 92: 3.7, 91: 3.6, 90: 3.5,
+    89: 3.4, 88: 3.3, 87: 3.2, 86: 3.1, 85: 3.0, 84: 2.9, 83: 2.8, 82: 2.7, 81: 2.6, 80: 2.5,
+    79: 2.4, 78: 2.3, 77: 2.2, 76: 2.1, 75: 2.0, 74: 1.9, 73: 1.8, 72: 1.7, 71: 1.6, 70: 1.5,
+    69: 1.4, 68: 1.3, 67: 1.2, 66: 1.1, 65: 1.0
   }
 };
 
@@ -169,37 +189,30 @@ function createManualCourse() {
     gradePageUrl: "",
     url: "",
     includeInGpa: true,
-    level: "regular",
+    level: "academic",
     createdAt: new Date().toISOString()
   };
 }
 
-function gradePoints(percent) {
-  const value = Number.parseFloat(percent);
-  if (!Number.isFinite(value)) return null;
-  if (value >= 93) return 4.0;
-  if (value >= 90) return 3.7;
-  if (value >= 87) return 3.3;
-  if (value >= 83) return 3.0;
-  if (value >= 80) return 2.7;
-  if (value >= 77) return 2.3;
-  if (value >= 73) return 2.0;
-  if (value >= 70) return 1.7;
-  if (value >= 67) return 1.3;
-  if (value >= 65) return 1.0;
-  return 0;
+function normalizeLevel(level) {
+  if (level === "regular") return "academic";
+  if (level === "ap") return "ap";
+  if (level === "honors") return "honors";
+  if (level === "accelerated") return "accelerated";
+  return "academic";
 }
 
-function weightBonus(course) {
-  if (course.level === "ap") return Number.parseFloat(state.gpaSettings.apBonus) || 0;
-  if (course.level === "honors") return Number.parseFloat(state.gpaSettings.honorsBonus) || 0;
-  return 0;
+function chartGrade(percent) {
+  const value = Number.parseFloat(percent);
+  if (!Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(100, Math.floor(value)));
 }
 
 function courseGpa(course, weighted = true) {
-  const base = gradePoints(course.gradePercent);
-  if (base === null) return null;
-  return Math.min(5, base + (weighted ? weightBonus(course) : 0));
+  const grade = chartGrade(course.gradePercent);
+  if (grade === null) return null;
+  const level = weighted ? normalizeLevel(course.level) : "academic";
+  return GPA_CHART[level]?.[grade] ?? (grade < 65 ? 0 : null);
 }
 
 function formatGpa(value) {
@@ -415,13 +428,13 @@ function renderGrades() {
     const level = document.createElement("td");
     const levelSelect = document.createElement("select");
     levelSelect.className = "level-select";
-    for (const [value, label] of [["regular", "Regular"], ["honors", "Honors"], ["ap", "AP"]]) {
+    for (const [value, label] of [["ap", "AP"], ["honors", "Honors"], ["accelerated", "Accelerated"], ["academic", "Academic"]]) {
       const option = document.createElement("option");
       option.value = value;
       option.textContent = label;
       levelSelect.append(option);
     }
-    levelSelect.value = course.level || "regular";
+    levelSelect.value = normalizeLevel(course.level);
     levelSelect.addEventListener("change", () => updateCourse(course.id, { level: levelSelect.value }));
     level.append(levelSelect);
 
@@ -470,8 +483,6 @@ function renderGpa() {
   elements.unweightedGpa.textContent = formatGpa(unweighted);
   elements.weightedGpa.textContent = formatGpa(weighted);
   elements.gpaCourseCount.textContent = String(included.length);
-  elements.honorsBonusInput.value = String(state.gpaSettings.honorsBonus);
-  elements.apBonusInput.value = String(state.gpaSettings.apBonus);
 }
 
 function render() {
@@ -483,13 +494,12 @@ function render() {
 }
 
 function load() {
-  chrome.storage.local.get([STORAGE_KEY, DONE_KEY, DURATION_KEY, PLAN_KEY, COURSES_KEY, GPA_SETTINGS_KEY], (stored) => {
+  chrome.storage.local.get([STORAGE_KEY, DONE_KEY, DURATION_KEY, PLAN_KEY, COURSES_KEY], (stored) => {
     state.tasks = Array.isArray(stored[STORAGE_KEY]) ? stored[STORAGE_KEY] : [];
     state.done = stored[DONE_KEY] || {};
     state.durations = stored[DURATION_KEY] || {};
     state.plan = stored[PLAN_KEY] || {};
     state.courses = Array.isArray(stored[COURSES_KEY]) ? stored[COURSES_KEY] : [];
-    state.gpaSettings = { ...state.gpaSettings, ...(stored[GPA_SETTINGS_KEY] || {}) };
     render();
   });
 }
@@ -497,10 +507,6 @@ function load() {
 function saveCourses(nextCourses = state.courses) {
   state.courses = nextCourses;
   chrome.storage.local.set({ [COURSES_KEY]: state.courses }, render);
-}
-
-function saveGpaSettings() {
-  chrome.storage.local.set({ [GPA_SETTINGS_KEY]: state.gpaSettings }, render);
 }
 
 function updateCourse(id, patch) {
@@ -748,14 +754,6 @@ elements.syncButton.addEventListener("click", syncCurrentTab);
 elements.clearButton.addEventListener("click", clearSavedData);
 elements.filterSelect.addEventListener("change", renderTable);
 elements.addCourseButton.addEventListener("click", addCourse);
-elements.honorsBonusInput.addEventListener("change", () => {
-  state.gpaSettings = { ...state.gpaSettings, honorsBonus: Number.parseFloat(elements.honorsBonusInput.value) || 0 };
-  saveGpaSettings();
-});
-elements.apBonusInput.addEventListener("change", () => {
-  state.gpaSettings = { ...state.gpaSettings, apBonus: Number.parseFloat(elements.apBonusInput.value) || 0 };
-  saveGpaSettings();
-});
 for (const button of elements.tabButtons) {
   button.addEventListener("click", () => switchTab(button.dataset.tab));
 }

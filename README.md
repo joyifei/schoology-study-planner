@@ -33,6 +33,8 @@ Duration estimates use the same stable matching. Edit the `Min` field in the hom
 
 The Grades tab is intentionally semi-automatic. Add each course manually, paste the course Grades page link, and keep level/include settings editable. Use `Grab` to read top-level grading-period scores from that course page and calculate the display-only Grade and GPA columns.
 
+GPA uses the Conestoga High School conversion chart for AP, Honors, Accelerated, and Academic levels.
+
 ## Privacy
 
 All captured homework data is stored locally with `chrome.storage.local`. There is no backend and no analytics.
