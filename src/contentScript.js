@@ -267,6 +267,13 @@
     return null;
   }
 
+  function extractCourseGradePercent(text) {
+    const match = text.match(/\bcourse\s+grade\s*:?\s*(\d{1,3}(?:\.\d+)?)\s*%/i);
+    if (!match) return null;
+    const value = Number.parseFloat(match[1]);
+    return Number.isFinite(value) && value >= 0 && value <= 110 ? value : null;
+  }
+
   function combinedGradeLines(lines) {
     const combined = [];
 
@@ -349,10 +356,12 @@
       .map((table) => getVisibleText(table))
       .find((text) => /overall|current|final|course|period|total|%/i.test(text));
     const text = preferredText || getVisibleText(document.body);
+    const bodyText = getVisibleText(document.body);
     const lines = visibleLines(document.body);
     const gradingPeriods = extractWeightedGradePeriods(lines);
     const weightedGradePercent = weightedGradeFromPeriods(gradingPeriods);
-    const gradePercent = weightedGradePercent ?? extractGradePercentFromText(text);
+    const courseGradePercent = extractCourseGradePercent(bodyText);
+    const gradePercent = courseGradePercent ?? weightedGradePercent ?? extractGradePercentFromText(text);
     const letterGrade = extractLetterGrade(text);
 
     return {
@@ -360,6 +369,7 @@
       gradePercent,
       letterGrade,
       gradingPeriods,
+      gradeSource: courseGradePercent !== null ? "course-grade" : (weightedGradePercent !== null ? "weighted-periods" : "fallback"),
       scannedAt: new Date().toISOString(),
       sourceUrl: window.location.href
     };

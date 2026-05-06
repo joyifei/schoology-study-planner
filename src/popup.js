@@ -664,14 +664,16 @@ function readGradeFromTab(tabId, course) {
         gradePercent: grade.gradePercent,
         letterGrade: grade.letterGrade,
         gradingPeriods: grade.gradingPeriods || [],
+        gradeSource: grade.gradeSource || "",
         lastGradeScanAt: grade.scannedAt,
         sourceUrl: grade.sourceUrl
       });
 
       const periodCount = grade.gradingPeriods?.length || 0;
+      const sourceLabel = grade.gradeSource === "course-grade" ? "course grade" : `${periodCount} period${periodCount === 1 ? "" : "s"}`;
       elements.syncStatus.textContent = grade.gradePercent == null
         ? `No grade found for ${course.name}.`
-        : `Updated ${course.name}: ${grade.gradePercent}% from ${periodCount} period${periodCount === 1 ? "" : "s"}.`;
+        : `Updated ${course.name}: ${grade.gradePercent}% from ${sourceLabel}.`;
     });
   });
 }
