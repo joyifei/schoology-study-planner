@@ -16,6 +16,7 @@ const elements = {
   overdueCount: document.querySelector("#overdueCount"),
   todayCount: document.querySelector("#todayCount"),
   weekCount: document.querySelector("#weekCount"),
+  allCount: document.querySelector("#allCount"),
   filterSelect: document.querySelector("#filterSelect"),
   taskTable: document.querySelector("#taskTable"),
   emptyState: document.querySelector("#emptyState"),
@@ -264,6 +265,7 @@ function renderSummary() {
   elements.overdueCount.textContent = String(active.filter((task) => daysUntil(task) < 0).length);
   elements.todayCount.textContent = String(active.filter((task) => daysUntil(task) === 0).length);
   elements.weekCount.textContent = String(active.filter((task) => daysUntil(task) >= 0 && daysUntil(task) <= 7).length);
+  elements.allCount.textContent = String(active.length);
 
   const latest = state.tasks
     .map((task) => task.capturedAt)

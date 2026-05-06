@@ -141,7 +141,7 @@ select {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 10px;
   margin: 10px 0 12px;
 }
@@ -175,6 +175,10 @@ select {
 
 .summary-item.week {
   border-color: var(--teal);
+}
+
+.summary-item.all {
+  border-color: var(--blue);
 }
 
 .panel {
