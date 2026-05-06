@@ -121,6 +121,13 @@
       </section>
 
       <section id="gpaPanel" class="tab-panel">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>GPA Dashboard</h2>
+            <button id="updateAllGradesButton" type="button">Update All Grades</button>
+          </div>
+          <p class="helper-text">Average GPA is calculated from courses marked Include. Update All Grades opens each saved grade page and refreshes the grade and GPA.</p>
+        </section>
         <section class="summary-grid gpa-summary" aria-label="GPA summary">
           <div class="summary-item week">
             <span id="weightedGpa">--</span>
@@ -132,7 +139,7 @@
           </div>
           <div class="summary-item urgent">
             <span id="gpaCourseCount">0</span>
-            <p>Courses</p>
+            <p>Included Courses</p>
           </div>
         </section>
       </section>

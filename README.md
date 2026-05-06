@@ -12,6 +12,7 @@ A Chrome extension that turns Schoology's right-side **To Do / Upcoming** panel 
 - Lets a parent add or remove assignments from Today Plan.
 - Builds a lightweight "Today Plan" ordered by overdue and soonest due items, using the saved duration estimates.
 - Scans Schoology courses and saves current course grades for a weighted GPA estimate.
+- Shows a GPA dashboard and can refresh all saved course grade pages in one pass.
 
 ## Install Locally
 
@@ -31,7 +32,7 @@ Done status is matched to a stable Schoology assignment URL when one is availabl
 
 Duration estimates use the same stable matching. Edit the `Min` field in the homework table; the value is saved immediately and reflected in the Today Plan.
 
-The Grades tab is intentionally semi-automatic. Add each course manually, paste the course Grades page link, and keep level/include settings editable. Use `Grab` to read top-level grading-period scores from that course page and calculate the display-only Grade and GPA columns.
+The Grades tab is intentionally semi-automatic. Add each course manually, paste the course Grades page link, and keep level/include settings editable. Use `Grab` to read top-level grading-period scores from that course page and calculate the display-only Grade and GPA columns. Use the GPA tab's `Update All Grades` button to run that same grab logic for every course with a saved grade page link.
 
 GPA uses the Conestoga High School conversion chart for AP, Honors, Accelerated, and Academic levels.
 

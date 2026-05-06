@@ -27,7 +27,8 @@ const elements = {
   gradesEmptyState: document.querySelector("#gradesEmptyState"),
   weightedGpa: document.querySelector("#weightedGpa"),
   unweightedGpa: document.querySelector("#unweightedGpa"),
-  gpaCourseCount: document.querySelector("#gpaCourseCount")
+  gpaCourseCount: document.querySelector("#gpaCourseCount"),
+  updateAllGradesButton: document.querySelector("#updateAllGradesButton")
 };
 
 let state = {
@@ -37,6 +38,7 @@ let state = {
   plan: {},
   courses: []
 };
+let isUpdatingGrades = false;
 
 const GPA_CHART = {
   ap: {
@@ -213,6 +215,10 @@ function courseGpa(course, weighted = true) {
   if (grade === null) return null;
   const level = weighted ? normalizeLevel(course.level) : "academic";
   return GPA_CHART[level]?.[grade] ?? (grade < 65 ? 0 : null);
+}
+
+function courseGradeUrl(course) {
+  return course.gradePageUrl || course.url || "";
 }
 
 function formatGpa(value) {
@@ -473,6 +479,7 @@ function renderGrades() {
 
 function renderGpa() {
   const included = state.courses.filter((course) => course.includeInGpa !== false && courseGpa(course, false) !== null);
+  const updatable = state.courses.filter((course) => courseGradeUrl(course)).length;
   const unweighted = included.length
     ? included.reduce((sum, course) => sum + courseGpa(course, false), 0) / included.length
     : NaN;
@@ -483,6 +490,7 @@ function renderGpa() {
   elements.unweightedGpa.textContent = formatGpa(unweighted);
   elements.weightedGpa.textContent = formatGpa(weighted);
   elements.gpaCourseCount.textContent = String(included.length);
+  elements.updateAllGradesButton.disabled = isUpdatingGrades || updatable === 0;
 }
 
 function render() {
@@ -509,8 +517,22 @@ function saveCourses(nextCourses = state.courses) {
   chrome.storage.local.set({ [COURSES_KEY]: state.courses }, render);
 }
 
+function saveCoursesAsync(nextCourses = state.courses) {
+  state.courses = nextCourses;
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [COURSES_KEY]: state.courses }, () => {
+      render();
+      resolve();
+    });
+  });
+}
+
 function updateCourse(id, patch) {
   saveCourses(state.courses.map((course) => course.id === id ? { ...course, ...patch } : course));
+}
+
+function updateCourseAsync(id, patch) {
+  return saveCoursesAsync(state.courses.map((course) => course.id === id ? { ...course, ...patch } : course));
 }
 
 function addCourse() {
@@ -652,68 +674,129 @@ function saveCurrentGrade() {
   });
 }
 
-function readGradeFromTab(tabId, course) {
-  chrome.scripting.executeScript({ target: { tabId }, files: ["src/contentScript.js"] }, () => {
-    if (chrome.runtime.lastError) {
-      elements.syncStatus.textContent = `Could not read ${course.name}.`;
-      return;
-    }
+function gradePatch(grade) {
+  return {
+    gradePercent: grade.gradePercent,
+    letterGrade: grade.letterGrade,
+    gradingPeriods: grade.gradingPeriods || [],
+    gradeSource: grade.gradeSource || "",
+    lastGradeScanAt: grade.scannedAt,
+    sourceUrl: grade.sourceUrl
+  };
+}
 
-    chrome.tabs.sendMessage(tabId, { type: SCAN_GRADE_MESSAGE }, (response) => {
-      if (chrome.runtime.lastError || !response?.ok || !response.grade) {
-        elements.syncStatus.textContent = `No grade found for ${course.name}.`;
-        return;
-      }
+function gradeSourceLabel(grade) {
+  const periodCount = grade.gradingPeriods?.length || 0;
+  if (grade.gradeSource === "course-grade") return "course grade";
+  return `${periodCount} period${periodCount === 1 ? "" : "s"}`;
+}
 
-      const grade = response.grade;
-      updateCourse(course.id, {
-        gradePercent: grade.gradePercent,
-        letterGrade: grade.letterGrade,
-        gradingPeriods: grade.gradingPeriods || [],
-        gradeSource: grade.gradeSource || "",
-        lastGradeScanAt: grade.scannedAt,
-        sourceUrl: grade.sourceUrl
-      });
-
-      const periodCount = grade.gradingPeriods?.length || 0;
-      const sourceLabel = grade.gradeSource === "course-grade" ? "course grade" : `${periodCount} period${periodCount === 1 ? "" : "s"}`;
-      elements.syncStatus.textContent = grade.gradePercent == null
-        ? `No grade found for ${course.name}.`
-        : `Updated ${course.name}: ${grade.gradePercent}% from ${sourceLabel}.`;
+function createGradeTab(url) {
+  return new Promise((resolve) => {
+    chrome.tabs.create({ url, active: false }, (tab) => {
+      resolve(chrome.runtime.lastError || !tab?.id ? null : tab);
     });
   });
 }
 
-function grabCourseGrade(course) {
-  const url = course.gradePageUrl || course.url;
+function waitForTabComplete(tabId) {
+  return new Promise((resolve) => {
+    const timeoutId = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }, 8000);
+
+    const listener = (updatedTabId, changeInfo) => {
+      if (updatedTabId !== tabId || changeInfo.status !== "complete") return;
+      clearTimeout(timeoutId);
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    };
+
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
+function extractGradeFromTab(tabId) {
+  return new Promise((resolve) => {
+    chrome.scripting.executeScript({ target: { tabId }, files: ["src/contentScript.js"] }, () => {
+      if (chrome.runtime.lastError) {
+        resolve({ ok: false });
+        return;
+      }
+
+      chrome.tabs.sendMessage(tabId, { type: SCAN_GRADE_MESSAGE }, (response) => {
+        if (chrome.runtime.lastError || !response?.ok || !response.grade) {
+          resolve({ ok: false });
+          return;
+        }
+        resolve({ ok: true, grade: response.grade });
+      });
+    });
+  });
+}
+
+async function grabGradeForCourse(course) {
+  const url = courseGradeUrl(course);
   if (!url) {
+    return { ok: false, reason: "missing-url" };
+  }
+
+  const tab = await createGradeTab(url);
+  if (!tab?.id) return { ok: false, reason: "open-failed" };
+
+  try {
+    await waitForTabComplete(tab.id);
+    return await extractGradeFromTab(tab.id);
+  } finally {
+    setTimeout(() => chrome.tabs.remove(tab.id), 300);
+  }
+}
+
+async function grabCourseGrade(course) {
+  if (!courseGradeUrl(course)) {
     elements.syncStatus.textContent = `Add a grade page link for ${course.name}.`;
     return;
   }
 
   elements.syncStatus.textContent = `Opening ${course.name} grade page...`;
-  chrome.tabs.create({ url, active: false }, (tab) => {
-    if (chrome.runtime.lastError || !tab?.id) {
-      elements.syncStatus.textContent = `Could not open grade page for ${course.name}.`;
-      return;
+  const result = await grabGradeForCourse(course);
+  if (!result.ok || !result.grade) {
+    elements.syncStatus.textContent = `No grade found for ${course.name}.`;
+    return;
+  }
+
+  await updateCourseAsync(course.id, gradePatch(result.grade));
+  elements.syncStatus.textContent = result.grade.gradePercent == null
+    ? `No grade found for ${course.name}.`
+    : `Updated ${course.name}: ${result.grade.gradePercent}% from ${gradeSourceLabel(result.grade)}.`;
+}
+
+async function updateAllGrades() {
+  const courses = state.courses.filter((course) => courseGradeUrl(course));
+  if (courses.length === 0) {
+    elements.syncStatus.textContent = "Add grade page links before updating grades.";
+    return;
+  }
+
+  isUpdatingGrades = true;
+  renderGpa();
+  let updated = 0;
+
+  try {
+    for (let index = 0; index < courses.length; index += 1) {
+      const course = courses[index];
+      elements.syncStatus.textContent = `Updating ${index + 1}/${courses.length}: ${course.name}...`;
+      const result = await grabGradeForCourse(course);
+      if (!result.ok || !result.grade || result.grade.gradePercent == null) continue;
+      updated += 1;
+      await updateCourseAsync(course.id, gradePatch(result.grade));
     }
-
-    const timeoutId = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      readGradeFromTab(tab.id, course);
-      setTimeout(() => chrome.tabs.remove(tab.id), 1200);
-    }, 8000);
-
-    const listener = (tabId, changeInfo) => {
-      if (tabId !== tab.id || changeInfo.status !== "complete") return;
-      clearTimeout(timeoutId);
-      chrome.tabs.onUpdated.removeListener(listener);
-      readGradeFromTab(tab.id, course);
-      setTimeout(() => chrome.tabs.remove(tab.id), 1200);
-    };
-
-    chrome.tabs.onUpdated.addListener(listener);
-  });
+    elements.syncStatus.textContent = `Updated ${updated} of ${courses.length} course grade${courses.length === 1 ? "" : "s"}.`;
+  } finally {
+    isUpdatingGrades = false;
+    render();
+  }
 }
 
 function switchTab(tabId) {
@@ -754,6 +837,7 @@ elements.syncButton.addEventListener("click", syncCurrentTab);
 elements.clearButton.addEventListener("click", clearSavedData);
 elements.filterSelect.addEventListener("change", renderTable);
 elements.addCourseButton.addEventListener("click", addCourse);
+elements.updateAllGradesButton.addEventListener("click", updateAllGrades);
 for (const button of elements.tabButtons) {
   button.addEventListener("click", () => switchTab(button.dataset.tab));
 }
