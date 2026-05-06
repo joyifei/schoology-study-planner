@@ -298,43 +298,85 @@
     return /\b(?:20\d{2}|2\d)?\s*(?:S\d|Q\d|T\d|MP\d)\b/i.test(line) && !/classwork|assignment|homework|test|quiz|project/i.test(line);
   }
 
+  function periodKey(line, weight) {
+    const match = line.match(/\b((?:20\d{2}|2\d)?\s*(?:S\d|Q\d|T\d|MP\d)[^()]*)/i);
+    return `${normalizeText(match?.[1] || line).toLowerCase()}|${weight}`;
+  }
+
+  function scoreAfterWeight(line, weightMatch) {
+    const afterWeight = line.slice(line.indexOf(weightMatch[0]) + weightMatch[0].length);
+    let scoreMatch = afterWeight.match(/\b(\d{1,3}(?:\.\d+)?)\s*%/);
+    if (!scoreMatch) {
+      const withoutWeights = line.replace(/\(\s*\d+(?:\.\d+)?\s*%\s*\)/g, "");
+      const percentMatches = Array.from(withoutWeights.matchAll(/\b(\d{1,3}(?:\.\d+)?)\s*%/g));
+      scoreMatch = percentMatches.at(-1);
+    }
+    if (!scoreMatch) return null;
+    const score = Number.parseFloat(scoreMatch[1]);
+    return Number.isFinite(score) && score >= 0 && score <= 110 ? score : null;
+  }
+
+  function periodFromLine(line) {
+    if (!/\(\s*\d+(?:\.\d+)?\s*%\s*\)/.test(line)) return null;
+    if (/no grading period/i.test(line)) return null;
+    if (!isTopLevelGradingPeriodLine(line)) return null;
+
+    const weightMatch = line.match(/\(\s*(\d+(?:\.\d+)?)\s*%\s*\)/);
+    if (!weightMatch) return null;
+    const weight = Number.parseFloat(weightMatch[1]);
+    if (!Number.isFinite(weight) || weight <= 0) return null;
+
+    const score = scoreAfterWeight(line, weightMatch);
+    if (score === null) return null;
+
+    return {
+      key: periodKey(line, weight),
+      label: line.replace(/\(\s*\d+(?:\.\d+)?\s*%\s*\).*/, "").trim(),
+      weight,
+      score
+    };
+  }
+
+  function extractWeightedGradePeriodsFromDom() {
+    const nodes = Array.from(document.body.querySelectorAll("tr,li,div"));
+    const candidates = nodes
+      .map((node) => getVisibleText(node))
+      .filter((text) => text && text.length < 350)
+      .map(periodFromLine)
+      .filter(Boolean)
+      .sort((a, b) => a.label.length - b.label.length);
+
+    const byKey = new Map();
+    for (const period of candidates) {
+      if (!byKey.has(period.key)) byKey.set(period.key, period);
+    }
+    return Array.from(byKey.values()).map(({ key: _key, ...period }) => period);
+  }
+
   function extractWeightedGradePeriods(rawLines) {
     const lines = combinedGradeLines(rawLines);
     const periods = [];
 
     for (let index = 0; index < lines.length; index += 1) {
       const line = lines[index];
-      if (!/\(\s*\d+(?:\.\d+)?\s*%\s*\)/.test(line)) continue;
-      if (/no grading period/i.test(line)) continue;
-      if (!isTopLevelGradingPeriodLine(line)) continue;
-
-      const weightMatch = line.match(/\(\s*(\d+(?:\.\d+)?)\s*%\s*\)/);
-      if (!weightMatch) continue;
-      const weight = Number.parseFloat(weightMatch[1]);
-      if (!Number.isFinite(weight) || weight <= 0) continue;
-
-      const afterWeight = line.slice(line.indexOf(weightMatch[0]) + weightMatch[0].length);
-      let scoreMatch = afterWeight.match(/\b(\d{1,3}(?:\.\d+)?)\s*%/);
-      if (!scoreMatch) {
+      let period = periodFromLine(line);
+      if (!period) {
         for (let lookahead = index + 1; lookahead <= Math.min(index + 3, lines.length - 1); lookahead += 1) {
           if (/\(\s*\d+(?:\.\d+)?\s*%\s*\)/.test(lines[lookahead])) break;
-          scoreMatch = lines[lookahead].match(/\b(\d{1,3}(?:\.\d+)?)\s*%/);
-          if (scoreMatch) break;
+          period = periodFromLine(`${line} ${lines[lookahead]}`);
+          if (period) break;
         }
       }
 
-      if (!scoreMatch) continue;
-      const score = Number.parseFloat(scoreMatch[1]);
-      if (!Number.isFinite(score) || score < 0 || score > 110) continue;
-
-      periods.push({
-        label: line.replace(/\(\s*\d+(?:\.\d+)?\s*%\s*\).*/, "").trim(),
-        weight,
-        score
-      });
+      if (!period) continue;
+      periods.push(period);
     }
 
-    return periods;
+    const byKey = new Map();
+    for (const period of periods) {
+      if (!byKey.has(period.key)) byKey.set(period.key, period);
+    }
+    return Array.from(byKey.values()).map(({ key: _key, ...period }) => period);
   }
 
   function weightedGradeFromPeriods(periods) {
@@ -358,7 +400,9 @@
     const text = preferredText || getVisibleText(document.body);
     const bodyText = getVisibleText(document.body);
     const lines = visibleLines(document.body);
-    const gradingPeriods = extractWeightedGradePeriods(lines);
+    const domGradingPeriods = extractWeightedGradePeriodsFromDom();
+    const lineGradingPeriods = extractWeightedGradePeriods(lines);
+    const gradingPeriods = domGradingPeriods.length >= lineGradingPeriods.length ? domGradingPeriods : lineGradingPeriods;
     const weightedGradePercent = weightedGradeFromPeriods(gradingPeriods);
     const courseGradePercent = extractCourseGradePercent(bodyText);
     const gradePercent = courseGradePercent ?? weightedGradePercent ?? extractGradePercentFromText(text);
