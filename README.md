@@ -13,6 +13,7 @@ A Chrome extension that turns Schoology's right-side **To Do / Upcoming** panel 
 - Builds a lightweight "Today Plan" ordered by overdue and soonest due items, using the saved duration estimates.
 - Scans Schoology courses and saves current course grades for a weighted GPA estimate.
 - Shows a GPA dashboard and can refresh all saved course grade pages in one pass.
+- Saves one grade/GPA snapshot per day and charts course grade and GPA changes over time.
 
 ## Install Locally
 
@@ -35,6 +36,8 @@ Duration estimates use the same stable matching. Edit the `Min` field in the hom
 The Grades tab is intentionally semi-automatic. Add each course manually, paste the course Grades page link, and keep level/include settings editable. Use `Grab` to read top-level grading-period scores from that course page and calculate the display-only Grade and GPA columns. Use the GPA tab's `Update All Grades` button to run that same grab logic for every course with a saved grade page link.
 
 GPA uses the Conestoga High School conversion chart for AP, Honors, Accelerated, and Academic levels.
+
+Each successful grade grab saves today's course grades plus weighted and unweighted GPA. If grades are grabbed more than once on the same day, the latest snapshot replaces the earlier one.
 
 ## Privacy
 

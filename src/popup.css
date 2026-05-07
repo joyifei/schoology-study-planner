@@ -400,3 +400,66 @@ a:hover {
 .plan-list span {
   color: var(--muted);
 }
+
+.chart-wrap {
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.history-chart {
+  display: block;
+  width: 100%;
+  min-height: 230px;
+}
+
+.chart-title {
+  font-size: 13px;
+  font-weight: 700;
+  fill: var(--ink);
+}
+
+.chart-axis,
+.chart-grid {
+  stroke: #d9dee7;
+  stroke-width: 1;
+}
+
+.chart-label {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.chart-line {
+  fill: none;
+  stroke-width: 2.5;
+}
+
+.chart-dot {
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}

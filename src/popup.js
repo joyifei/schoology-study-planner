@@ -3,8 +3,10 @@ const DONE_KEY = "schoologyStudyPlanner.done";
 const DURATION_KEY = "schoologyStudyPlanner.durations";
 const PLAN_KEY = "schoologyStudyPlanner.plan";
 const COURSES_KEY = "schoologyStudyPlanner.courses";
+const GRADE_HISTORY_KEY = "schoologyStudyPlanner.gradeHistory";
 const SYNC_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SYNC_V2";
 const SCAN_GRADE_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SCAN_GRADE_V1";
+const CHART_COLORS = ["#1d75bd", "#008a8a", "#b7791f", "#c33a32", "#2f855a", "#805ad5", "#d53f8c", "#4a5568"];
 
 const elements = {
   syncButton: document.querySelector("#syncButton"),
@@ -28,7 +30,11 @@ const elements = {
   weightedGpa: document.querySelector("#weightedGpa"),
   unweightedGpa: document.querySelector("#unweightedGpa"),
   gpaCourseCount: document.querySelector("#gpaCourseCount"),
-  updateAllGradesButton: document.querySelector("#updateAllGradesButton")
+  updateAllGradesButton: document.querySelector("#updateAllGradesButton"),
+  gradeHistoryChart: document.querySelector("#gradeHistoryChart"),
+  gpaHistoryChart: document.querySelector("#gpaHistoryChart"),
+  historyEmptyState: document.querySelector("#historyEmptyState"),
+  historyPointCount: document.querySelector("#historyPointCount")
 };
 
 let state = {
@@ -36,7 +42,8 @@ let state = {
   done: {},
   durations: {},
   plan: {},
-  courses: []
+  courses: [],
+  gradeHistory: []
 };
 let isUpdatingGrades = false;
 
@@ -223,6 +230,29 @@ function courseGradeUrl(course) {
 
 function formatGpa(value) {
   return Number.isFinite(value) ? value.toFixed(2) : "--";
+}
+
+function roundMetric(value, digits = 2) {
+  return Number.isFinite(value) ? Number(value.toFixed(digits)) : null;
+}
+
+function averageGpas(courses = state.courses) {
+  const included = courses.filter((course) => course.includeInGpa !== false && courseGpa(course, false) !== null);
+  const unweighted = included.length
+    ? included.reduce((sum, course) => sum + courseGpa(course, false), 0) / included.length
+    : NaN;
+  const weighted = included.length
+    ? included.reduce((sum, course) => sum + courseGpa(course, true), 0) / included.length
+    : NaN;
+
+  return { included, weighted, unweighted };
+}
+
+function todayKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function formatDateTime(iso, fallback) {
@@ -478,19 +508,183 @@ function renderGrades() {
 }
 
 function renderGpa() {
-  const included = state.courses.filter((course) => course.includeInGpa !== false && courseGpa(course, false) !== null);
+  const { included, weighted, unweighted } = averageGpas();
   const updatable = state.courses.filter((course) => courseGradeUrl(course)).length;
-  const unweighted = included.length
-    ? included.reduce((sum, course) => sum + courseGpa(course, false), 0) / included.length
-    : NaN;
-  const weighted = included.length
-    ? included.reduce((sum, course) => sum + courseGpa(course, true), 0) / included.length
-    : NaN;
 
   elements.unweightedGpa.textContent = formatGpa(unweighted);
   elements.weightedGpa.textContent = formatGpa(weighted);
   elements.gpaCourseCount.textContent = String(included.length);
   elements.updateAllGradesButton.disabled = isUpdatingGrades || updatable === 0;
+  renderHistoryCharts();
+}
+
+function chartPointDates(history) {
+  return history
+    .map((snapshot) => snapshot.date)
+    .filter(Boolean)
+    .sort();
+}
+
+function courseNameForHistory(courseId, fallback) {
+  return state.courses.find((course) => course.id === courseId)?.name || fallback || "Course";
+}
+
+function historySeries() {
+  const courseMap = new Map();
+  const weighted = { id: "weighted-gpa", name: "Weighted GPA", values: [] };
+  const unweighted = { id: "unweighted-gpa", name: "Unweighted GPA", values: [] };
+
+  for (const snapshot of state.gradeHistory) {
+    if (Number.isFinite(snapshot.weightedGpa)) {
+      weighted.values.push({ date: snapshot.date, value: snapshot.weightedGpa });
+    }
+    if (Number.isFinite(snapshot.unweightedGpa)) {
+      unweighted.values.push({ date: snapshot.date, value: snapshot.unweightedGpa });
+    }
+
+    for (const course of snapshot.courses || []) {
+      if (!Number.isFinite(course.gradePercent)) continue;
+      const existing = courseMap.get(course.id) || {
+        id: course.id,
+        name: courseNameForHistory(course.id, course.name),
+        values: []
+      };
+      existing.name = courseNameForHistory(course.id, existing.name);
+      existing.values.push({ date: snapshot.date, value: course.gradePercent });
+      courseMap.set(course.id, existing);
+    }
+  }
+
+  return {
+    courses: Array.from(courseMap.values()).sort((a, b) => a.name.localeCompare(b.name)),
+    gpas: [weighted, unweighted].filter((series) => series.values.length > 0)
+  };
+}
+
+function chartDomain(series, fallbackMin, fallbackMax, pad, hardMin, hardMax) {
+  const values = series.flatMap((item) => item.values.map((point) => point.value));
+  if (values.length === 0) return { min: fallbackMin, max: fallbackMax };
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const range = rawMax - rawMin;
+  const padding = range === 0 ? pad : Math.max(pad, range * 0.15);
+  return {
+    min: Math.max(hardMin, rawMin - padding),
+    max: Math.min(hardMax, rawMax + padding)
+  };
+}
+
+function svgElement(name, attrs = {}) {
+  const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, String(value));
+  return element;
+}
+
+function renderLineChart(container, title, series, options) {
+  container.replaceChildren();
+  if (series.length === 0) return;
+
+  const dates = chartPointDates(state.gradeHistory);
+  const width = 760;
+  const height = 230;
+  const left = 50;
+  const right = 18;
+  const top = 30;
+  const bottom = 34;
+  const domain = chartDomain(series, options.fallbackMin, options.fallbackMax, options.pad, options.hardMin, options.hardMax);
+  const usableWidth = width - left - right;
+  const usableHeight = height - top - bottom;
+  const xFor = (date) => dates.length <= 1 ? left + usableWidth / 2 : left + (dates.indexOf(date) / (dates.length - 1)) * usableWidth;
+  const yFor = (value) => top + (1 - ((value - domain.min) / (domain.max - domain.min || 1))) * usableHeight;
+
+  const svg = svgElement("svg", {
+    class: "history-chart",
+    viewBox: `0 0 ${width} ${height}`,
+    role: "img",
+    "aria-label": title
+  });
+
+  const titleNode = svgElement("text", { class: "chart-title", x: left, y: 18 });
+  titleNode.textContent = title;
+  svg.append(titleNode);
+
+  for (let index = 0; index <= 4; index += 1) {
+    const y = top + (usableHeight / 4) * index;
+    const value = domain.max - ((domain.max - domain.min) / 4) * index;
+    svg.append(svgElement("line", { class: "chart-grid", x1: left, x2: width - right, y1: y, y2: y }));
+    const label = svgElement("text", { class: "chart-label", x: 8, y: y + 4 });
+    label.textContent = options.format(value);
+    svg.append(label);
+  }
+
+  svg.append(svgElement("line", { class: "chart-axis", x1: left, x2: width - right, y1: height - bottom, y2: height - bottom }));
+  if (dates.length > 0) {
+    const first = svgElement("text", { class: "chart-label", x: left, y: height - 10 });
+    first.textContent = dates[0].slice(5);
+    svg.append(first);
+    const last = svgElement("text", { class: "chart-label", x: width - right - 34, y: height - 10 });
+    last.textContent = dates.at(-1).slice(5);
+    svg.append(last);
+  }
+
+  series.forEach((item, index) => {
+    const color = CHART_COLORS[index % CHART_COLORS.length];
+    const points = item.values
+      .filter((point) => dates.includes(point.date))
+      .map((point) => [xFor(point.date), yFor(point.value)]);
+    if (points.length === 0) return;
+
+    const path = points.map(([x, y], pointIndex) => `${pointIndex === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`).join(" ");
+    svg.append(svgElement("path", { class: "chart-line", d: path, stroke: color }));
+    for (const [x, y] of points) {
+      svg.append(svgElement("circle", { class: "chart-dot", cx: x, cy: y, r: 3.5, fill: color }));
+    }
+  });
+
+  container.append(svg);
+
+  const legend = document.createElement("div");
+  legend.className = "chart-legend";
+  series.forEach((item, index) => {
+    const entry = document.createElement("span");
+    entry.className = "legend-item";
+    const swatch = document.createElement("span");
+    swatch.className = "legend-swatch";
+    swatch.style.backgroundColor = CHART_COLORS[index % CHART_COLORS.length];
+    const label = document.createElement("span");
+    label.textContent = item.name;
+    entry.append(swatch, label);
+    legend.append(entry);
+  });
+  container.append(legend);
+}
+
+function renderHistoryCharts() {
+  const history = state.gradeHistory.filter((snapshot) => snapshot.date).sort((a, b) => a.date.localeCompare(b.date));
+  state.gradeHistory = history;
+  const { courses, gpas } = historySeries();
+  const hasHistory = courses.length > 0 || gpas.length > 0;
+
+  elements.historyEmptyState.hidden = hasHistory;
+  elements.historyPointCount.textContent = history.length ? `${history.length} day${history.length === 1 ? "" : "s"}` : "";
+  elements.gradeHistoryChart.hidden = courses.length === 0;
+  elements.gpaHistoryChart.hidden = gpas.length === 0;
+  renderLineChart(elements.gradeHistoryChart, "Course Grades", courses, {
+    fallbackMin: 0,
+    fallbackMax: 100,
+    hardMin: 0,
+    hardMax: 100,
+    pad: 3,
+    format: (value) => `${Math.round(value)}%`
+  });
+  renderLineChart(elements.gpaHistoryChart, "GPA", gpas, {
+    fallbackMin: 0,
+    fallbackMax: 5.3,
+    hardMin: 0,
+    hardMax: 5.3,
+    pad: 0.2,
+    format: (value) => value.toFixed(2)
+  });
 }
 
 function render() {
@@ -502,12 +696,13 @@ function render() {
 }
 
 function load() {
-  chrome.storage.local.get([STORAGE_KEY, DONE_KEY, DURATION_KEY, PLAN_KEY, COURSES_KEY], (stored) => {
+  chrome.storage.local.get([STORAGE_KEY, DONE_KEY, DURATION_KEY, PLAN_KEY, COURSES_KEY, GRADE_HISTORY_KEY], (stored) => {
     state.tasks = Array.isArray(stored[STORAGE_KEY]) ? stored[STORAGE_KEY] : [];
     state.done = stored[DONE_KEY] || {};
     state.durations = stored[DURATION_KEY] || {};
     state.plan = stored[PLAN_KEY] || {};
     state.courses = Array.isArray(stored[COURSES_KEY]) ? stored[COURSES_KEY] : [];
+    state.gradeHistory = Array.isArray(stored[GRADE_HISTORY_KEY]) ? stored[GRADE_HISTORY_KEY] : [];
     render();
   });
 }
@@ -533,6 +728,43 @@ function updateCourse(id, patch) {
 
 function updateCourseAsync(id, patch) {
   return saveCoursesAsync(state.courses.map((course) => course.id === id ? { ...course, ...patch } : course));
+}
+
+function dailyGradeSnapshot(courses = state.courses) {
+  const { weighted, unweighted, included } = averageGpas(courses);
+  return {
+    date: todayKey(),
+    capturedAt: new Date().toISOString(),
+    weightedGpa: roundMetric(weighted),
+    unweightedGpa: roundMetric(unweighted),
+    includedCourseCount: included.length,
+    courses: courses
+      .filter((course) => Number.isFinite(Number.parseFloat(course.gradePercent)))
+      .map((course) => ({
+        id: course.id,
+        name: course.name || "Course",
+        gradePercent: roundMetric(Number.parseFloat(course.gradePercent)),
+        weightedGpa: roundMetric(courseGpa(course, true)),
+        unweightedGpa: roundMetric(courseGpa(course, false)),
+        level: normalizeLevel(course.level),
+        includeInGpa: course.includeInGpa !== false
+      }))
+  };
+}
+
+function saveDailyGradeHistoryAsync(courses = state.courses) {
+  const snapshot = dailyGradeSnapshot(courses);
+  const history = state.gradeHistory.filter((item) => item.date !== snapshot.date);
+  history.push(snapshot);
+  history.sort((a, b) => a.date.localeCompare(b.date));
+  state.gradeHistory = history;
+
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [GRADE_HISTORY_KEY]: state.gradeHistory }, () => {
+      render();
+      resolve();
+    });
+  });
 }
 
 function addCourse() {
@@ -765,11 +997,14 @@ async function grabCourseGrade(course) {
     elements.syncStatus.textContent = `No grade found for ${course.name}.`;
     return;
   }
+  if (result.grade.gradePercent == null) {
+    elements.syncStatus.textContent = `No grade found for ${course.name}.`;
+    return;
+  }
 
   await updateCourseAsync(course.id, gradePatch(result.grade));
-  elements.syncStatus.textContent = result.grade.gradePercent == null
-    ? `No grade found for ${course.name}.`
-    : `Updated ${course.name}: ${result.grade.gradePercent}% from ${gradeSourceLabel(result.grade)}.`;
+  await saveDailyGradeHistoryAsync();
+  elements.syncStatus.textContent = `Updated ${course.name}: ${result.grade.gradePercent}% from ${gradeSourceLabel(result.grade)}.`;
 }
 
 async function updateAllGrades() {
@@ -792,6 +1027,7 @@ async function updateAllGrades() {
       updated += 1;
       await updateCourseAsync(course.id, gradePatch(result.grade));
     }
+    if (updated > 0) await saveDailyGradeHistoryAsync();
     elements.syncStatus.textContent = `Updated ${updated} of ${courses.length} course grade${courses.length === 1 ? "" : "s"}.`;
   } finally {
     isUpdatingGrades = false;
