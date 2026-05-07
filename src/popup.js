@@ -31,8 +31,9 @@ const elements = {
   unweightedGpa: document.querySelector("#unweightedGpa"),
   gpaCourseCount: document.querySelector("#gpaCourseCount"),
   updateAllGradesButton: document.querySelector("#updateAllGradesButton"),
-  gradeHistoryChart: document.querySelector("#gradeHistoryChart"),
   gpaHistoryChart: document.querySelector("#gpaHistoryChart"),
+  gradeChangeTable: document.querySelector("#gradeChangeTable"),
+  courseHistoryGrid: document.querySelector("#courseHistoryGrid"),
   historyEmptyState: document.querySelector("#historyEmptyState"),
   historyPointCount: document.querySelector("#historyPointCount")
 };
@@ -580,17 +581,17 @@ function svgElement(name, attrs = {}) {
   return element;
 }
 
-function renderLineChart(container, title, series, options) {
+function renderLineChart(container, title, series, options = {}) {
   container.replaceChildren();
   if (series.length === 0) return;
 
   const dates = chartPointDates(state.gradeHistory);
-  const width = 760;
-  const height = 230;
-  const left = 50;
-  const right = 18;
-  const top = 30;
-  const bottom = 34;
+  const width = options.width || 760;
+  const height = options.height || 230;
+  const left = options.left || 50;
+  const right = options.right || 18;
+  const top = options.top || 30;
+  const bottom = options.bottom || 34;
   const domain = chartDomain(series, options.fallbackMin, options.fallbackMax, options.pad, options.hardMin, options.hardMax);
   const usableWidth = width - left - right;
   const usableHeight = height - top - bottom;
@@ -643,6 +644,8 @@ function renderLineChart(container, title, series, options) {
 
   container.append(svg);
 
+  if (options.hideLegend) return;
+
   const legend = document.createElement("div");
   legend.className = "chart-legend";
   series.forEach((item, index) => {
@@ -659,6 +662,106 @@ function renderLineChart(container, title, series, options) {
   container.append(legend);
 }
 
+function formatGradeChange(value) {
+  if (!Number.isFinite(value)) return "--";
+  if (Math.abs(value) < 0.005) return "0.00";
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
+}
+
+function latestCourseChange(series) {
+  const values = [...series.values].sort((a, b) => a.date.localeCompare(b.date));
+  const latest = values.at(-1);
+  const previous = values.at(-2);
+  return {
+    latest,
+    previous,
+    change: latest && previous ? latest.value - previous.value : NaN
+  };
+}
+
+function renderGradeChangeTable(courses) {
+  elements.gradeChangeTable.replaceChildren();
+  if (courses.length === 0) return;
+
+  const table = document.createElement("table");
+  table.className = "mini-table";
+  const thead = document.createElement("thead");
+  const header = document.createElement("tr");
+  for (const label of ["Course", "Current", "Change", "Date"]) {
+    const th = document.createElement("th");
+    th.textContent = label;
+    header.append(th);
+  }
+  thead.append(header);
+
+  const tbody = document.createElement("tbody");
+  for (const course of courses) {
+    const { latest, change } = latestCourseChange(course);
+    const row = document.createElement("tr");
+
+    const name = document.createElement("td");
+    name.textContent = course.name;
+    const current = document.createElement("td");
+    current.textContent = latest ? `${latest.value.toFixed(2)}%` : "--";
+    const delta = document.createElement("td");
+    delta.textContent = `${formatGradeChange(change)}${Number.isFinite(change) ? "%" : ""}`;
+    if (Number.isFinite(change)) delta.className = change > 0 ? "positive-change" : change < 0 ? "negative-change" : "";
+    const date = document.createElement("td");
+    date.textContent = latest ? latest.date : "--";
+
+    row.append(name, current, delta, date);
+    tbody.append(row);
+  }
+
+  table.append(thead, tbody);
+  elements.gradeChangeTable.append(table);
+}
+
+function renderCourseMiniCharts(courses) {
+  elements.courseHistoryGrid.replaceChildren();
+  for (const [index, course] of courses.entries()) {
+    const card = document.createElement("section");
+    card.className = "course-chart-card";
+    const { latest, change } = latestCourseChange(course);
+
+    const heading = document.createElement("div");
+    heading.className = "course-chart-heading";
+    const title = document.createElement("strong");
+    title.textContent = course.name;
+    const meta = document.createElement("span");
+    meta.textContent = latest ? `${latest.value.toFixed(2)}% (${formatGradeChange(change)}${Number.isFinite(change) ? "%" : ""})` : "--";
+    if (Number.isFinite(change)) meta.className = change > 0 ? "positive-change" : change < 0 ? "negative-change" : "";
+    heading.append(title, meta);
+
+    const chart = document.createElement("div");
+    chart.className = "mini-chart";
+    card.append(heading, chart);
+    elements.courseHistoryGrid.append(card);
+
+    renderLineChart(chart, course.name, [{ ...course, name: "", values: course.values }], {
+      fallbackMin: 0,
+      fallbackMax: 100,
+      hardMin: 0,
+      hardMax: 100,
+      pad: 3,
+      width: 340,
+      height: 150,
+      left: 38,
+      right: 12,
+      top: 12,
+      bottom: 24,
+      hideLegend: true,
+      format: (value) => `${Math.round(value)}%`
+    });
+
+    const line = chart.querySelector(".chart-line");
+    const dots = chart.querySelectorAll(".chart-dot");
+    const color = CHART_COLORS[index % CHART_COLORS.length];
+    if (line) line.setAttribute("stroke", color);
+    for (const dot of dots) dot.setAttribute("fill", color);
+  }
+}
+
 function renderHistoryCharts() {
   const history = state.gradeHistory.filter((snapshot) => snapshot.date).sort((a, b) => a.date.localeCompare(b.date));
   state.gradeHistory = history;
@@ -667,16 +770,9 @@ function renderHistoryCharts() {
 
   elements.historyEmptyState.hidden = hasHistory;
   elements.historyPointCount.textContent = history.length ? `${history.length} day${history.length === 1 ? "" : "s"}` : "";
-  elements.gradeHistoryChart.hidden = courses.length === 0;
   elements.gpaHistoryChart.hidden = gpas.length === 0;
-  renderLineChart(elements.gradeHistoryChart, "Course Grades", courses, {
-    fallbackMin: 0,
-    fallbackMax: 100,
-    hardMin: 0,
-    hardMax: 100,
-    pad: 3,
-    format: (value) => `${Math.round(value)}%`
-  });
+  elements.gradeChangeTable.hidden = courses.length === 0;
+  elements.courseHistoryGrid.hidden = courses.length === 0;
   renderLineChart(elements.gpaHistoryChart, "GPA", gpas, {
     fallbackMin: 0,
     fallbackMax: 5.3,
@@ -685,6 +781,8 @@ function renderHistoryCharts() {
     pad: 0.2,
     format: (value) => value.toFixed(2)
   });
+  renderGradeChangeTable(courses);
+  renderCourseMiniCharts(courses);
 }
 
 function render() {
