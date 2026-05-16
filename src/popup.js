@@ -308,6 +308,33 @@ function normalizeImportedHistorySnapshot(snapshot) {
   };
 }
 
+function portableDoneStatus() {
+  const done = {};
+  for (const [key, value] of Object.entries(state.done || {})) {
+    if (!key || !value || typeof value !== "object") continue;
+    done[key] = {
+      doneAt: value.doneAt || "",
+      title: value.title || "",
+      course: value.course || ""
+    };
+  }
+  return done;
+}
+
+function normalizeImportedDoneStatus(done) {
+  if (!done || typeof done !== "object" || Array.isArray(done)) return {};
+  const normalized = {};
+  for (const [key, value] of Object.entries(done)) {
+    if (!key || !value || typeof value !== "object") continue;
+    normalized[key] = {
+      doneAt: value.doneAt || "",
+      title: value.title || "",
+      course: value.course || ""
+    };
+  }
+  return normalized;
+}
+
 function normalizeLevel(level) {
   if (level === "regular") return "academic";
   if (level === "ap") return "ap";
@@ -980,12 +1007,14 @@ function deleteCourse(id) {
 function exportCourses() {
   const courses = state.courses.map(portableCourse);
   const gradeHistory = portableGradeHistory();
+  const done = portableDoneStatus();
   const payload = {
     app: "Schoology Study Planner",
-    version: 2,
+    version: 3,
     exportedAt: new Date().toISOString(),
     courses,
-    gradeHistory
+    gradeHistory,
+    done
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -996,7 +1025,7 @@ function exportCourses() {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  elements.syncStatus.textContent = `Exported ${courses.length} course${courses.length === 1 ? "" : "s"} and ${gradeHistory.length} history day${gradeHistory.length === 1 ? "" : "s"}.`;
+  elements.syncStatus.textContent = `Exported ${courses.length} course${courses.length === 1 ? "" : "s"}, ${gradeHistory.length} history day${gradeHistory.length === 1 ? "" : "s"}, and ${Object.keys(done).length} done item${Object.keys(done).length === 1 ? "" : "s"}.`;
 }
 
 function importCoursesFromFile(file) {
@@ -1007,6 +1036,7 @@ function importCoursesFromFile(file) {
       const parsed = JSON.parse(String(reader.result || ""));
       const rawCourses = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.courses) ? parsed.courses : []);
       const rawHistory = Array.isArray(parsed.gradeHistory) ? parsed.gradeHistory : [];
+      const importedDone = normalizeImportedDoneStatus(parsed.done);
 
       const imported = rawCourses
         .map((course, index) => normalizeImportedCourse(course, index))
@@ -1014,7 +1044,7 @@ function importCoursesFromFile(file) {
       const importedHistory = rawHistory
         .map(normalizeImportedHistorySnapshot)
         .filter(Boolean);
-      if (imported.length === 0 && importedHistory.length === 0) throw new Error("No data");
+      if (imported.length === 0 && importedHistory.length === 0 && Object.keys(importedDone).length === 0) throw new Error("No data");
 
       const byId = new Map(state.courses.map((course) => [course.id, course]));
       const byName = new Map(state.courses.map((course) => [(course.name || "").trim().toLowerCase(), course]));
@@ -1033,15 +1063,18 @@ function importCoursesFromFile(file) {
       const historyByDate = new Map(state.gradeHistory.map((snapshot) => [snapshot.date, snapshot]));
       for (const snapshot of importedHistory) historyByDate.set(snapshot.date, snapshot);
       const nextHistory = Array.from(historyByDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+      const nextDone = { ...state.done, ...importedDone };
 
       state.courses = nextCourses;
       state.gradeHistory = nextHistory;
+      state.done = nextDone;
       chrome.storage.local.set({
         [COURSES_KEY]: state.courses,
-        [GRADE_HISTORY_KEY]: state.gradeHistory
+        [GRADE_HISTORY_KEY]: state.gradeHistory,
+        [DONE_KEY]: state.done
       }, () => {
         render();
-        elements.syncStatus.textContent = `Imported ${imported.length} course${imported.length === 1 ? "" : "s"} and ${importedHistory.length} history day${importedHistory.length === 1 ? "" : "s"}.`;
+        elements.syncStatus.textContent = `Imported ${imported.length} course${imported.length === 1 ? "" : "s"}, ${importedHistory.length} history day${importedHistory.length === 1 ? "" : "s"}, and ${Object.keys(importedDone).length} done item${Object.keys(importedDone).length === 1 ? "" : "s"}.`;
       });
     } catch (_error) {
       elements.syncStatus.textContent = "Could not import data. Choose a Schoology planner JSON file.";

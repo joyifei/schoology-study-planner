@@ -13,9 +13,14 @@
           <p class="eyebrow">Schoology</p>
           <h1>Study Planner</h1>
         </div>
-        <button id="syncButton" type="button" title="Sync current Schoology page">
-          Sync
-        </button>
+        <div class="button-row">
+          <button id="exportCoursesButton" class="ghost" type="button">Export Data</button>
+          <button id="importCoursesButton" class="ghost" type="button">Import Data</button>
+          <button id="syncButton" type="button" title="Sync current Schoology page">
+            Sync
+          </button>
+          <input id="importCoursesInput" type="file" accept="application/json,.json" hidden />
+        </div>
       </header>
 
       <section class="status-row" aria-live="polite">
@@ -95,10 +100,7 @@
           <div class="panel-heading">
             <h2>Grades</h2>
             <div class="button-row">
-              <button id="exportCoursesButton" class="ghost" type="button">Export Data</button>
-              <button id="importCoursesButton" class="ghost" type="button">Import Data</button>
               <button id="addCourseButton" class="ghost" type="button">Add Course</button>
-              <input id="importCoursesInput" type="file" accept="application/json,.json" hidden />
             </div>
           </div>
           <p class="helper-text">Add courses once and paste each course Grades page link. Grade and GPA are display-only for now.</p>
