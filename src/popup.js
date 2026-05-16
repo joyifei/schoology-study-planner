@@ -6,6 +6,8 @@ const COURSES_KEY = "schoologyStudyPlanner.courses";
 const GRADE_HISTORY_KEY = "schoologyStudyPlanner.gradeHistory";
 const SYNC_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SYNC_V2";
 const SCAN_GRADE_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SCAN_GRADE_V1";
+const DATA_FILE_NAME = "schoology-planner-data.json";
+const DATA_FILE_PATH = `data/${DATA_FILE_NAME}`;
 const CHART_COLORS = ["#1d75bd", "#008a8a", "#b7791f", "#c33a32", "#2f855a", "#805ad5", "#d53f8c", "#4a5568"];
 
 const elements = {
@@ -27,7 +29,6 @@ const elements = {
   addCourseButton: document.querySelector("#addCourseButton"),
   exportCoursesButton: document.querySelector("#exportCoursesButton"),
   importCoursesButton: document.querySelector("#importCoursesButton"),
-  importCoursesInput: document.querySelector("#importCoursesInput"),
   gradesTable: document.querySelector("#gradesTable"),
   gradesEmptyState: document.querySelector("#gradesEmptyState"),
   weightedGpa: document.querySelector("#weightedGpa"),
@@ -1020,69 +1021,71 @@ function exportCourses() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `schoology-planner-data-${todayKey()}.json`;
+  link.download = DATA_FILE_NAME;
   document.body.append(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  elements.syncStatus.textContent = `Exported ${courses.length} course${courses.length === 1 ? "" : "s"}, ${gradeHistory.length} history day${gradeHistory.length === 1 ? "" : "s"}, and ${Object.keys(done).length} done item${Object.keys(done).length === 1 ? "" : "s"}.`;
+  elements.syncStatus.textContent = `Exported ${DATA_FILE_NAME}. Put it in the project's data folder for bundled import.`;
 }
 
-function importCoursesFromFile(file) {
-  if (!file) return;
-  const reader = new FileReader();
-  reader.addEventListener("load", () => {
-    try {
-      const parsed = JSON.parse(String(reader.result || ""));
-      const rawCourses = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.courses) ? parsed.courses : []);
-      const rawHistory = Array.isArray(parsed.gradeHistory) ? parsed.gradeHistory : [];
-      const importedDone = normalizeImportedDoneStatus(parsed.done);
+function importPlannerData(parsed) {
+  const rawCourses = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.courses) ? parsed.courses : []);
+  const rawHistory = Array.isArray(parsed.gradeHistory) ? parsed.gradeHistory : [];
+  const importedDone = normalizeImportedDoneStatus(parsed.done);
 
-      const imported = rawCourses
-        .map((course, index) => normalizeImportedCourse(course, index))
-        .filter(Boolean);
-      const importedHistory = rawHistory
-        .map(normalizeImportedHistorySnapshot)
-        .filter(Boolean);
-      if (imported.length === 0 && importedHistory.length === 0 && Object.keys(importedDone).length === 0) throw new Error("No data");
+  const imported = rawCourses
+    .map((course, index) => normalizeImportedCourse(course, index))
+    .filter(Boolean);
+  const importedHistory = rawHistory
+    .map(normalizeImportedHistorySnapshot)
+    .filter(Boolean);
+  if (imported.length === 0 && importedHistory.length === 0 && Object.keys(importedDone).length === 0) {
+    throw new Error("No data");
+  }
 
-      const byId = new Map(state.courses.map((course) => [course.id, course]));
-      const byName = new Map(state.courses.map((course) => [(course.name || "").trim().toLowerCase(), course]));
-      const nextCourses = [...state.courses];
+  const byId = new Map(state.courses.map((course) => [course.id, course]));
+  const byName = new Map(state.courses.map((course) => [(course.name || "").trim().toLowerCase(), course]));
+  const nextCourses = [...state.courses];
 
-      for (const course of imported) {
-        const existing = byId.get(course.id) || byName.get((course.name || "").trim().toLowerCase());
-        if (existing) {
-          const index = nextCourses.findIndex((item) => item.id === existing.id);
-          nextCourses[index] = { ...existing, ...course, id: existing.id };
-        } else {
-          nextCourses.push(course);
-        }
-      }
-
-      const historyByDate = new Map(state.gradeHistory.map((snapshot) => [snapshot.date, snapshot]));
-      for (const snapshot of importedHistory) historyByDate.set(snapshot.date, snapshot);
-      const nextHistory = Array.from(historyByDate.values()).sort((a, b) => a.date.localeCompare(b.date));
-      const nextDone = { ...state.done, ...importedDone };
-
-      state.courses = nextCourses;
-      state.gradeHistory = nextHistory;
-      state.done = nextDone;
-      chrome.storage.local.set({
-        [COURSES_KEY]: state.courses,
-        [GRADE_HISTORY_KEY]: state.gradeHistory,
-        [DONE_KEY]: state.done
-      }, () => {
-        render();
-        elements.syncStatus.textContent = `Imported ${imported.length} course${imported.length === 1 ? "" : "s"}, ${importedHistory.length} history day${importedHistory.length === 1 ? "" : "s"}, and ${Object.keys(importedDone).length} done item${Object.keys(importedDone).length === 1 ? "" : "s"}.`;
-      });
-    } catch (_error) {
-      elements.syncStatus.textContent = "Could not import data. Choose a Schoology planner JSON file.";
-    } finally {
-      elements.importCoursesInput.value = "";
+  for (const course of imported) {
+    const existing = byId.get(course.id) || byName.get((course.name || "").trim().toLowerCase());
+    if (existing) {
+      const index = nextCourses.findIndex((item) => item.id === existing.id);
+      nextCourses[index] = { ...existing, ...course, id: existing.id };
+    } else {
+      nextCourses.push(course);
     }
+  }
+
+  const historyByDate = new Map(state.gradeHistory.map((snapshot) => [snapshot.date, snapshot]));
+  for (const snapshot of importedHistory) historyByDate.set(snapshot.date, snapshot);
+  const nextHistory = Array.from(historyByDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+  const nextDone = { ...state.done, ...importedDone };
+
+  state.courses = nextCourses;
+  state.gradeHistory = nextHistory;
+  state.done = nextDone;
+  chrome.storage.local.set({
+    [COURSES_KEY]: state.courses,
+    [GRADE_HISTORY_KEY]: state.gradeHistory,
+    [DONE_KEY]: state.done
+  }, () => {
+    render();
+    elements.syncStatus.textContent = `Imported ${imported.length} course${imported.length === 1 ? "" : "s"}, ${importedHistory.length} history day${importedHistory.length === 1 ? "" : "s"}, and ${Object.keys(importedDone).length} done item${Object.keys(importedDone).length === 1 ? "" : "s"}.`;
   });
-  reader.readAsText(file);
+}
+
+async function importBundledData() {
+  try {
+    elements.syncStatus.textContent = `Importing ${DATA_FILE_PATH}...`;
+    const response = await fetch(`${chrome.runtime.getURL(DATA_FILE_PATH)}?t=${Date.now()}`);
+    if (!response.ok) throw new Error("Missing data file");
+    const parsed = await response.json();
+    importPlannerData(parsed);
+  } catch (_error) {
+    elements.syncStatus.textContent = `Could not import ${DATA_FILE_PATH}. Export ${DATA_FILE_NAME}, put it in the data folder, then reload the extension.`;
+  }
 }
 
 function toggleDone(task, checked) {
@@ -1406,8 +1409,7 @@ elements.clearButton.addEventListener("click", clearSavedData);
 elements.filterSelect.addEventListener("change", renderTable);
 elements.addCourseButton.addEventListener("click", addCourse);
 elements.exportCoursesButton.addEventListener("click", exportCourses);
-elements.importCoursesButton.addEventListener("click", () => elements.importCoursesInput.click());
-elements.importCoursesInput.addEventListener("change", () => importCoursesFromFile(elements.importCoursesInput.files?.[0]));
+elements.importCoursesButton.addEventListener("click", importBundledData);
 elements.updateAllGradesButton.addEventListener("click", updateAllGrades);
 for (const button of elements.tabButtons) {
   button.addEventListener("click", () => switchTab(button.dataset.tab));
