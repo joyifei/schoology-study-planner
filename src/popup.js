@@ -209,7 +209,7 @@ function createManualCourse() {
 
 function portableCourse(course) {
   const url = courseGradeUrl(course);
-  return {
+  const exported = {
     id: course.id || courseKey(course),
     name: course.name || "Course",
     gradePageUrl: url,
@@ -217,6 +217,13 @@ function portableCourse(course) {
     level: normalizeLevel(course.level),
     includeInGpa: course.includeInGpa !== false
   };
+  if (course.gradePercent !== undefined) exported.gradePercent = course.gradePercent;
+  if (course.letterGrade !== undefined) exported.letterGrade = course.letterGrade;
+  if (course.gradeSource !== undefined) exported.gradeSource = course.gradeSource;
+  if (course.lastGradeScanAt !== undefined) exported.lastGradeScanAt = course.lastGradeScanAt;
+  if (course.sourceUrl !== undefined) exported.sourceUrl = course.sourceUrl;
+  if (Array.isArray(course.gradingPeriods)) exported.gradingPeriods = course.gradingPeriods;
+  return exported;
 }
 
 function normalizeImportedCourse(course, index) {
@@ -226,7 +233,7 @@ function normalizeImportedCourse(course, index) {
   if (!name && !url) return null;
 
   const id = String(course.id || `imported:${name || url || index}`).trim();
-  return {
+  const imported = {
     id,
     name: name || "Imported Course",
     gradePageUrl: url,
@@ -234,6 +241,70 @@ function normalizeImportedCourse(course, index) {
     level: normalizeLevel(course.level),
     includeInGpa: course.includeInGpa !== false,
     importedAt: new Date().toISOString()
+  };
+  const gradePercent = Number.parseFloat(course.gradePercent);
+  if (Number.isFinite(gradePercent)) imported.gradePercent = gradePercent;
+  if (course.letterGrade !== undefined) imported.letterGrade = course.letterGrade;
+  if (course.gradeSource !== undefined) imported.gradeSource = course.gradeSource;
+  if (course.lastGradeScanAt !== undefined) imported.lastGradeScanAt = course.lastGradeScanAt;
+  if (course.sourceUrl !== undefined) imported.sourceUrl = course.sourceUrl;
+  if (Array.isArray(course.gradingPeriods)) imported.gradingPeriods = course.gradingPeriods;
+  return imported;
+}
+
+function portableGradeHistory() {
+  return state.gradeHistory
+    .filter((snapshot) => snapshot && snapshot.date)
+    .map((snapshot) => ({
+      date: snapshot.date,
+      capturedAt: snapshot.capturedAt || "",
+      weightedGpa: roundMetric(Number.parseFloat(snapshot.weightedGpa)),
+      unweightedGpa: roundMetric(Number.parseFloat(snapshot.unweightedGpa)),
+      includedCourseCount: Number.isFinite(Number.parseInt(snapshot.includedCourseCount, 10))
+        ? Number.parseInt(snapshot.includedCourseCount, 10)
+        : 0,
+      courses: Array.isArray(snapshot.courses)
+        ? snapshot.courses.map((course) => ({
+          id: course.id,
+          name: course.name || "Course",
+          gradePercent: roundMetric(Number.parseFloat(course.gradePercent)),
+          weightedGpa: roundMetric(Number.parseFloat(course.weightedGpa)),
+          unweightedGpa: roundMetric(Number.parseFloat(course.unweightedGpa)),
+          level: normalizeLevel(course.level),
+          includeInGpa: course.includeInGpa !== false
+        })).filter((course) => course.id && Number.isFinite(course.gradePercent))
+        : []
+    }));
+}
+
+function normalizeImportedHistorySnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || !snapshot.date) return null;
+  const date = String(snapshot.date).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+
+  return {
+    date,
+    capturedAt: String(snapshot.capturedAt || ""),
+    weightedGpa: roundMetric(Number.parseFloat(snapshot.weightedGpa)),
+    unweightedGpa: roundMetric(Number.parseFloat(snapshot.unweightedGpa)),
+    includedCourseCount: Number.isFinite(Number.parseInt(snapshot.includedCourseCount, 10))
+      ? Number.parseInt(snapshot.includedCourseCount, 10)
+      : 0,
+    courses: Array.isArray(snapshot.courses)
+      ? snapshot.courses.map((course) => {
+        const gradePercent = Number.parseFloat(course.gradePercent);
+        if (!course.id || !Number.isFinite(gradePercent)) return null;
+        return {
+          id: String(course.id),
+          name: String(course.name || "Course"),
+          gradePercent: roundMetric(gradePercent),
+          weightedGpa: roundMetric(Number.parseFloat(course.weightedGpa)),
+          unweightedGpa: roundMetric(Number.parseFloat(course.unweightedGpa)),
+          level: normalizeLevel(course.level),
+          includeInGpa: course.includeInGpa !== false
+        };
+      }).filter(Boolean)
+      : []
   };
 }
 
@@ -908,22 +979,24 @@ function deleteCourse(id) {
 
 function exportCourses() {
   const courses = state.courses.map(portableCourse);
+  const gradeHistory = portableGradeHistory();
   const payload = {
     app: "Schoology Study Planner",
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
-    courses
+    courses,
+    gradeHistory
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `schoology-courses-${todayKey()}.json`;
+  link.download = `schoology-planner-data-${todayKey()}.json`;
   document.body.append(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  elements.syncStatus.textContent = `Exported ${courses.length} course${courses.length === 1 ? "" : "s"}.`;
+  elements.syncStatus.textContent = `Exported ${courses.length} course${courses.length === 1 ? "" : "s"} and ${gradeHistory.length} history day${gradeHistory.length === 1 ? "" : "s"}.`;
 }
 
 function importCoursesFromFile(file) {
@@ -932,13 +1005,16 @@ function importCoursesFromFile(file) {
   reader.addEventListener("load", () => {
     try {
       const parsed = JSON.parse(String(reader.result || ""));
-      const rawCourses = Array.isArray(parsed) ? parsed : parsed.courses;
-      if (!Array.isArray(rawCourses)) throw new Error("Missing courses");
+      const rawCourses = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.courses) ? parsed.courses : []);
+      const rawHistory = Array.isArray(parsed.gradeHistory) ? parsed.gradeHistory : [];
 
       const imported = rawCourses
         .map((course, index) => normalizeImportedCourse(course, index))
         .filter(Boolean);
-      if (imported.length === 0) throw new Error("No courses");
+      const importedHistory = rawHistory
+        .map(normalizeImportedHistorySnapshot)
+        .filter(Boolean);
+      if (imported.length === 0 && importedHistory.length === 0) throw new Error("No data");
 
       const byId = new Map(state.courses.map((course) => [course.id, course]));
       const byName = new Map(state.courses.map((course) => [(course.name || "").trim().toLowerCase(), course]));
@@ -954,10 +1030,21 @@ function importCoursesFromFile(file) {
         }
       }
 
-      saveCourses(nextCourses);
-      elements.syncStatus.textContent = `Imported ${imported.length} course${imported.length === 1 ? "" : "s"}.`;
+      const historyByDate = new Map(state.gradeHistory.map((snapshot) => [snapshot.date, snapshot]));
+      for (const snapshot of importedHistory) historyByDate.set(snapshot.date, snapshot);
+      const nextHistory = Array.from(historyByDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+
+      state.courses = nextCourses;
+      state.gradeHistory = nextHistory;
+      chrome.storage.local.set({
+        [COURSES_KEY]: state.courses,
+        [GRADE_HISTORY_KEY]: state.gradeHistory
+      }, () => {
+        render();
+        elements.syncStatus.textContent = `Imported ${imported.length} course${imported.length === 1 ? "" : "s"} and ${importedHistory.length} history day${importedHistory.length === 1 ? "" : "s"}.`;
+      });
     } catch (_error) {
-      elements.syncStatus.textContent = "Could not import courses. Choose a Schoology courses JSON file.";
+      elements.syncStatus.textContent = "Could not import data. Choose a Schoology planner JSON file.";
     } finally {
       elements.importCoursesInput.value = "";
     }

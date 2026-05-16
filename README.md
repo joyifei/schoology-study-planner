@@ -14,7 +14,7 @@ A Chrome extension that turns Schoology's right-side **To Do / Upcoming** panel 
 - Scans Schoology courses and saves current course grades for a weighted GPA estimate.
 - Shows a GPA dashboard and can refresh all saved course grade pages in one pass.
 - Saves one grade/GPA snapshot per day and charts course grade and GPA changes over time.
-- Exports and imports course setup so another Chrome profile or laptop can restore course names, grade page links, levels, and GPA include settings.
+- Exports and imports course setup plus current grade/GPA history so another Chrome profile or laptop can restore course names, grade page links, levels, GPA include settings, and chart data.
 
 ## Install Locally
 
@@ -40,7 +40,7 @@ GPA uses the Conestoga High School conversion chart for AP, Honors, Accelerated,
 
 Each successful grade grab saves today's course grades plus weighted and unweighted GPA. If grades are grabbed more than once on the same day, the latest snapshot replaces the earlier one.
 
-Use `Export Courses` on the Grades tab to download a portable JSON file with course setup. On another Chrome profile or laptop, install the extension, open the Grades tab, and use `Import Courses` to restore that setup.
+Use `Export Data` on the Grades tab to download a portable JSON file with course setup, current grades, and saved GPA history. On another Chrome profile or laptop, install the extension, open the Grades tab, and use `Import Data` to restore it.
 
 ## Privacy
 
