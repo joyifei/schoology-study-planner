@@ -14,7 +14,7 @@ A Chrome extension that turns Schoology's right-side **To Do / Upcoming** panel 
 - Scans Schoology courses and saves current course grades for a weighted GPA estimate.
 - Shows a GPA dashboard and can refresh all saved course grade pages in one pass.
 - Saves one grade/GPA snapshot per day and charts course grade and GPA changes over time.
-- Exports and imports planner data so another Chrome profile or laptop can restore homework done status, course setup, current grades, and GPA chart data.
+- Exports and imports planner data so another Chrome profile or laptop can restore homework done status, course setup, credits, current grades, and GPA chart data.
 
 ## Install Locally
 
@@ -34,13 +34,13 @@ Done status is matched to a stable Schoology assignment URL when one is availabl
 
 Duration estimates use the same stable matching. Edit the `Min` field in the homework table; the value is saved immediately and reflected in the Today Plan.
 
-The Grades tab is intentionally semi-automatic. Add each course manually, paste the course Grades page link, and keep level/include settings editable. Use `Grab` to read top-level grading-period scores from that course page and calculate the display-only Grade and GPA columns. Use the GPA tab's `Update All Grades` button to run that same grab logic for every course with a saved grade page link.
+The Grades tab is intentionally semi-automatic. Add each course manually, paste the course Grades page link, and keep level/credits/include settings editable. Use `Grab` to read top-level grading-period scores from that course page and calculate the display-only Grade and GPA columns. Use the GPA tab's `Update All Grades` button to run that same grab logic for every course with a saved grade page link.
 
-GPA uses the Conestoga High School conversion chart for AP, Honors, Accelerated, and Academic levels.
+Weighted GPA uses the Conestoga High School conversion chart for AP, Honors, Accelerated, and Academic levels. Unweighted GPA uses Conestoga's official 4.0 bands: A = 4.0, B = 3.0, C = 2.0, D = 1.0, and below 65 = 0. Overall GPA is weighted by credits and includes checked courses with at least 0.5 credits.
 
 Each successful grade grab saves today's course grades plus weighted and unweighted GPA. If grades are grabbed more than once on the same day, the latest snapshot replaces the earlier one.
 
-Use `Export Data` in the top bar to download `schoology-planner-data.json` with homework done status, course setup, current grades, and saved GPA history. To bundle that data with the extension, replace `data/schoology-planner-data.json` with the exported file before loading the extension in another Chrome profile or laptop. `Import Data` reads that bundled file directly.
+Use `Export Data` in the top bar to download `schoology-planner-data.json` with homework done status, course setup, credits, current grades, and saved GPA history. To bundle that data with the extension, replace `data/schoology-planner-data.json` with the exported file before loading the extension in another Chrome profile or laptop. `Import Data` reads that bundled file directly.
 
 ## Privacy
 

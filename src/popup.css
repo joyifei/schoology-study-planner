@@ -316,6 +316,7 @@ a:hover {
 .level-select,
 .course-input,
 .course-url-input,
+.credits-input,
 .settings-grid input {
   min-height: 30px;
   border: 1px solid var(--line);
@@ -332,6 +333,12 @@ a:hover {
 
 .level-select {
   width: 88px;
+}
+
+.credits-input {
+  width: 62px;
+  padding: 0 6px;
+  text-align: right;
 }
 
 .icon-button {

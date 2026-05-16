@@ -204,6 +204,7 @@ function createManualCourse() {
     url: "",
     includeInGpa: true,
     level: "academic",
+    credits: 1,
     createdAt: new Date().toISOString()
   };
 }
@@ -216,6 +217,7 @@ function portableCourse(course) {
     gradePageUrl: url,
     url,
     level: normalizeLevel(course.level),
+    credits: courseCredits(course),
     includeInGpa: course.includeInGpa !== false
   };
   if (course.gradePercent !== undefined) exported.gradePercent = course.gradePercent;
@@ -240,9 +242,12 @@ function normalizeImportedCourse(course, index) {
     gradePageUrl: url,
     url,
     level: normalizeLevel(course.level),
+    credits: courseCredits(course),
     includeInGpa: course.includeInGpa !== false,
     importedAt: new Date().toISOString()
   };
+  const credits = Number.parseFloat(course.credits);
+  if (Number.isFinite(credits) && credits > 0) imported.credits = credits;
   const gradePercent = Number.parseFloat(course.gradePercent);
   if (Number.isFinite(gradePercent)) imported.gradePercent = gradePercent;
   if (course.letterGrade !== undefined) imported.letterGrade = course.letterGrade;
@@ -264,6 +269,7 @@ function portableGradeHistory() {
       includedCourseCount: Number.isFinite(Number.parseInt(snapshot.includedCourseCount, 10))
         ? Number.parseInt(snapshot.includedCourseCount, 10)
         : 0,
+      includedCredits: roundMetric(Number.parseFloat(snapshot.includedCredits)),
       courses: Array.isArray(snapshot.courses)
         ? snapshot.courses.map((course) => ({
           id: course.id,
@@ -272,6 +278,7 @@ function portableGradeHistory() {
           weightedGpa: roundMetric(Number.parseFloat(course.weightedGpa)),
           unweightedGpa: roundMetric(Number.parseFloat(course.unweightedGpa)),
           level: normalizeLevel(course.level),
+          credits: Number.isFinite(Number.parseFloat(course.credits)) ? Number.parseFloat(course.credits) : 1,
           includeInGpa: course.includeInGpa !== false
         })).filter((course) => course.id && Number.isFinite(course.gradePercent))
         : []
@@ -291,6 +298,7 @@ function normalizeImportedHistorySnapshot(snapshot) {
     includedCourseCount: Number.isFinite(Number.parseInt(snapshot.includedCourseCount, 10))
       ? Number.parseInt(snapshot.includedCourseCount, 10)
       : 0,
+    includedCredits: roundMetric(Number.parseFloat(snapshot.includedCredits)),
     courses: Array.isArray(snapshot.courses)
       ? snapshot.courses.map((course) => {
         const gradePercent = Number.parseFloat(course.gradePercent);
@@ -302,6 +310,7 @@ function normalizeImportedHistorySnapshot(snapshot) {
           weightedGpa: roundMetric(Number.parseFloat(course.weightedGpa)),
           unweightedGpa: roundMetric(Number.parseFloat(course.unweightedGpa)),
           level: normalizeLevel(course.level),
+          credits: Number.isFinite(Number.parseFloat(course.credits)) ? Number.parseFloat(course.credits) : 1,
           includeInGpa: course.includeInGpa !== false
         };
       }).filter(Boolean)
@@ -350,10 +359,26 @@ function chartGrade(percent) {
   return Math.max(0, Math.min(100, Math.floor(value)));
 }
 
+function courseCredits(course) {
+  const credits = Number.parseFloat(course.credits);
+  return Number.isFinite(credits) && credits >= 0 ? credits : 1;
+}
+
+function unweightedCourseGpa(course) {
+  const grade = Number.parseFloat(course.gradePercent);
+  if (!Number.isFinite(grade)) return null;
+  if (grade >= 90) return 4;
+  if (grade >= 80) return 3;
+  if (grade >= 70) return 2;
+  if (grade >= 65) return 1;
+  return 0;
+}
+
 function courseGpa(course, weighted = true) {
+  if (!weighted) return unweightedCourseGpa(course);
   const grade = chartGrade(course.gradePercent);
   if (grade === null) return null;
-  const level = weighted ? normalizeLevel(course.level) : "academic";
+  const level = normalizeLevel(course.level);
   return GPA_CHART[level]?.[grade] ?? (grade < 65 ? 0 : null);
 }
 
@@ -370,15 +395,16 @@ function roundMetric(value, digits = 2) {
 }
 
 function averageGpas(courses = state.courses) {
-  const included = courses.filter((course) => course.includeInGpa !== false && courseGpa(course, false) !== null);
-  const unweighted = included.length
-    ? included.reduce((sum, course) => sum + courseGpa(course, false), 0) / included.length
+  const included = courses.filter((course) => course.includeInGpa !== false && courseCredits(course) >= 0.5 && courseGpa(course, false) !== null);
+  const totalCredits = included.reduce((sum, course) => sum + courseCredits(course), 0);
+  const unweighted = totalCredits > 0
+    ? included.reduce((sum, course) => sum + courseGpa(course, false) * courseCredits(course), 0) / totalCredits
     : NaN;
-  const weighted = included.length
-    ? included.reduce((sum, course) => sum + courseGpa(course, true), 0) / included.length
+  const weighted = totalCredits > 0
+    ? included.reduce((sum, course) => sum + courseGpa(course, true) * courseCredits(course), 0) / totalCredits
     : NaN;
 
-  return { included, weighted, unweighted };
+  return { included, totalCredits, weighted, unweighted };
 }
 
 function todayKey(date = new Date()) {
@@ -607,6 +633,19 @@ function renderGrades() {
     levelSelect.addEventListener("change", () => updateCourse(course.id, { level: levelSelect.value }));
     level.append(levelSelect);
 
+    const credits = document.createElement("td");
+    const creditsInput = document.createElement("input");
+    creditsInput.className = "credits-input";
+    creditsInput.type = "number";
+    creditsInput.min = "0";
+    creditsInput.max = "2";
+    creditsInput.step = "0.5";
+    creditsInput.value = String(courseCredits(course));
+    creditsInput.ariaLabel = `Credits for ${course.name}`;
+    creditsInput.addEventListener("change", () => updateCourse(course.id, { credits: courseCredits({ credits: creditsInput.value }) }));
+    creditsInput.addEventListener("blur", () => updateCourse(course.id, { credits: courseCredits({ credits: creditsInput.value }) }));
+    credits.append(creditsInput);
+
     const gpa = document.createElement("td");
     gpa.textContent = formatGpa(courseGpa(course));
 
@@ -635,7 +674,7 @@ function renderGrades() {
     deleteButton.addEventListener("click", () => deleteCourse(course.id));
     actions.append(deleteButton);
 
-    row.append(name, gradePage, grade, level, gpa, include, grab, actions);
+    row.append(name, gradePage, grade, level, credits, gpa, include, grab, actions);
     elements.gradesTable.append(row);
   }
 }
@@ -961,13 +1000,14 @@ function updateCourseAsync(id, patch) {
 }
 
 function dailyGradeSnapshot(courses = state.courses) {
-  const { weighted, unweighted, included } = averageGpas(courses);
+  const { weighted, unweighted, included, totalCredits } = averageGpas(courses);
   return {
     date: todayKey(),
     capturedAt: new Date().toISOString(),
     weightedGpa: roundMetric(weighted),
     unweightedGpa: roundMetric(unweighted),
     includedCourseCount: included.length,
+    includedCredits: roundMetric(totalCredits),
     courses: courses
       .filter((course) => Number.isFinite(Number.parseFloat(course.gradePercent)))
       .map((course) => ({
@@ -977,6 +1017,7 @@ function dailyGradeSnapshot(courses = state.courses) {
         weightedGpa: roundMetric(courseGpa(course, true)),
         unweightedGpa: roundMetric(courseGpa(course, false)),
         level: normalizeLevel(course.level),
+        credits: courseCredits(course),
         includeInGpa: course.includeInGpa !== false
       }))
   };
@@ -1011,7 +1052,7 @@ function exportCourses() {
   const done = portableDoneStatus();
   const payload = {
     app: "Schoology Study Planner",
-    version: 3,
+    version: 4,
     exportedAt: new Date().toISOString(),
     courses,
     gradeHistory,

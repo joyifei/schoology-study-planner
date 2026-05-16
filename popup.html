@@ -102,7 +102,7 @@
               <button id="addCourseButton" class="ghost" type="button">Add Course</button>
             </div>
           </div>
-          <p class="helper-text">Add courses once and paste each course Grades page link. Grade and GPA are display-only for now.</p>
+          <p class="helper-text">Add courses once and paste each course Grades page link. Grade and GPA are display-only; level, credits, and include settings drive overall GPA.</p>
           <div class="table-wrap grades-wrap">
             <table>
               <thead>
@@ -111,6 +111,7 @@
                   <th>Grade Page</th>
                   <th>Grade</th>
                   <th>Level</th>
+                  <th>Credits</th>
                   <th>GPA</th>
                   <th>Include</th>
                   <th>Grab</th>
@@ -130,7 +131,7 @@
             <h2>GPA Dashboard</h2>
             <button id="updateAllGradesButton" type="button">Update All Grades</button>
           </div>
-          <p class="helper-text">Average GPA is calculated from courses marked Include. Update All Grades opens each saved grade page and refreshes the grade and GPA.</p>
+          <p class="helper-text">Average GPA is credit-weighted from included courses worth at least 0.5 credits. Update All Grades opens each saved grade page and refreshes the grade and GPA.</p>
         </section>
         <section class="summary-grid gpa-summary" aria-label="GPA summary">
           <div class="summary-item week">
