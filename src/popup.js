@@ -25,6 +25,9 @@ const elements = {
   tabButtons: Array.from(document.querySelectorAll(".tab-button")),
   tabPanels: Array.from(document.querySelectorAll(".tab-panel")),
   addCourseButton: document.querySelector("#addCourseButton"),
+  exportCoursesButton: document.querySelector("#exportCoursesButton"),
+  importCoursesButton: document.querySelector("#importCoursesButton"),
+  importCoursesInput: document.querySelector("#importCoursesInput"),
   gradesTable: document.querySelector("#gradesTable"),
   gradesEmptyState: document.querySelector("#gradesEmptyState"),
   weightedGpa: document.querySelector("#weightedGpa"),
@@ -201,6 +204,36 @@ function createManualCourse() {
     includeInGpa: true,
     level: "academic",
     createdAt: new Date().toISOString()
+  };
+}
+
+function portableCourse(course) {
+  const url = courseGradeUrl(course);
+  return {
+    id: course.id || courseKey(course),
+    name: course.name || "Course",
+    gradePageUrl: url,
+    url,
+    level: normalizeLevel(course.level),
+    includeInGpa: course.includeInGpa !== false
+  };
+}
+
+function normalizeImportedCourse(course, index) {
+  if (!course || typeof course !== "object") return null;
+  const name = String(course.name || "").trim();
+  const url = String(course.gradePageUrl || course.url || "").trim();
+  if (!name && !url) return null;
+
+  const id = String(course.id || `imported:${name || url || index}`).trim();
+  return {
+    id,
+    name: name || "Imported Course",
+    gradePageUrl: url,
+    url,
+    level: normalizeLevel(course.level),
+    includeInGpa: course.includeInGpa !== false,
+    importedAt: new Date().toISOString()
   };
 }
 
@@ -873,6 +906,65 @@ function deleteCourse(id) {
   saveCourses(state.courses.filter((course) => course.id !== id));
 }
 
+function exportCourses() {
+  const courses = state.courses.map(portableCourse);
+  const payload = {
+    app: "Schoology Study Planner",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    courses
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `schoology-courses-${todayKey()}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  elements.syncStatus.textContent = `Exported ${courses.length} course${courses.length === 1 ? "" : "s"}.`;
+}
+
+function importCoursesFromFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.addEventListener("load", () => {
+    try {
+      const parsed = JSON.parse(String(reader.result || ""));
+      const rawCourses = Array.isArray(parsed) ? parsed : parsed.courses;
+      if (!Array.isArray(rawCourses)) throw new Error("Missing courses");
+
+      const imported = rawCourses
+        .map((course, index) => normalizeImportedCourse(course, index))
+        .filter(Boolean);
+      if (imported.length === 0) throw new Error("No courses");
+
+      const byId = new Map(state.courses.map((course) => [course.id, course]));
+      const byName = new Map(state.courses.map((course) => [(course.name || "").trim().toLowerCase(), course]));
+      const nextCourses = [...state.courses];
+
+      for (const course of imported) {
+        const existing = byId.get(course.id) || byName.get((course.name || "").trim().toLowerCase());
+        if (existing) {
+          const index = nextCourses.findIndex((item) => item.id === existing.id);
+          nextCourses[index] = { ...existing, ...course, id: existing.id };
+        } else {
+          nextCourses.push(course);
+        }
+      }
+
+      saveCourses(nextCourses);
+      elements.syncStatus.textContent = `Imported ${imported.length} course${imported.length === 1 ? "" : "s"}.`;
+    } catch (_error) {
+      elements.syncStatus.textContent = "Could not import courses. Choose a Schoology courses JSON file.";
+    } finally {
+      elements.importCoursesInput.value = "";
+    }
+  });
+  reader.readAsText(file);
+}
+
 function toggleDone(task, checked) {
   const keys = doneKeysFor(task);
   const primaryKey = stableTaskId(task);
@@ -1171,6 +1263,9 @@ elements.syncButton.addEventListener("click", syncCurrentTab);
 elements.clearButton.addEventListener("click", clearSavedData);
 elements.filterSelect.addEventListener("change", renderTable);
 elements.addCourseButton.addEventListener("click", addCourse);
+elements.exportCoursesButton.addEventListener("click", exportCourses);
+elements.importCoursesButton.addEventListener("click", () => elements.importCoursesInput.click());
+elements.importCoursesInput.addEventListener("change", () => importCoursesFromFile(elements.importCoursesInput.files?.[0]));
 elements.updateAllGradesButton.addEventListener("click", updateAllGrades);
 for (const button of elements.tabButtons) {
   button.addEventListener("click", () => switchTab(button.dataset.tab));

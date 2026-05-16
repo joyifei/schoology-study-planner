@@ -105,6 +105,11 @@ button.ghost {
   gap: 8px;
 }
 
+.button-row {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .tabs {
   margin: 10px 0 12px;
 }
