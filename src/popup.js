@@ -1141,40 +1141,59 @@ function togglePlan(task, included) {
   chrome.storage.local.set({ [PLAN_KEY]: state.plan }, render);
 }
 
-function syncCurrentTab() {
-  elements.syncButton.disabled = true;
-  elements.syncStatus.textContent = "Reading current Schoology page...";
-
-  chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-    if (!tab?.id) {
-      elements.syncStatus.textContent = "No active tab found.";
-      elements.syncButton.disabled = false;
-      return;
-    }
-
-    chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["src/contentScript.js"] }, () => {
-      if (chrome.runtime.lastError) {
-        elements.syncStatus.textContent = "Open a Schoology page, then click Sync.";
-        elements.syncButton.disabled = false;
+function syncHomeworkFromCurrentTab() {
+  return new Promise((resolve) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      if (!tab?.id) {
+        resolve({ ok: false, message: "No active tab found." });
         return;
       }
 
-      chrome.tabs.sendMessage(tab.id, { type: SYNC_MESSAGE }, (response) => {
-        if (chrome.runtime.lastError || !response?.ok) {
-          elements.syncStatus.textContent = "Open a Schoology page, then click Sync.";
-          elements.syncButton.disabled = false;
+      chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["src/contentScript.js"] }, () => {
+        if (chrome.runtime.lastError) {
+          resolve({ ok: false, message: "Open a Schoology page, then click Sync." });
           return;
         }
 
-        state.tasks = replaceSyncedTasks(state.tasks, response.tasks || []);
-        chrome.storage.local.set({ [STORAGE_KEY]: state.tasks }, () => {
-          elements.syncStatus.textContent = `Captured ${response.tasks.length} item${response.tasks.length === 1 ? "" : "s"}.`;
-          elements.syncButton.disabled = false;
-          render();
+        chrome.tabs.sendMessage(tab.id, { type: SYNC_MESSAGE }, (response) => {
+          if (chrome.runtime.lastError || !response?.ok) {
+            resolve({ ok: false, message: "Open a Schoology page, then click Sync." });
+            return;
+          }
+
+          const tasks = response.tasks || [];
+          state.tasks = replaceSyncedTasks(state.tasks, tasks);
+          chrome.storage.local.set({ [STORAGE_KEY]: state.tasks }, () => {
+            render();
+            resolve({ ok: true, count: tasks.length });
+          });
         });
       });
     });
   });
+}
+
+async function syncCurrentTab() {
+  elements.syncButton.disabled = true;
+  elements.syncStatus.textContent = "Syncing homework...";
+
+  try {
+    const homework = await syncHomeworkFromCurrentTab();
+    if (!homework.ok) {
+      elements.syncStatus.textContent = homework.message;
+      return;
+    }
+
+    elements.syncStatus.textContent = `Captured ${homework.count} homework item${homework.count === 1 ? "" : "s"}. Syncing grades...`;
+    const grades = await updateAllGrades({ quietWhenEmpty: true, quietFinalStatus: true });
+    const gradeText = grades.total === 0
+      ? "no saved grade pages to update"
+      : `updated ${grades.updated} of ${grades.total} course grade${grades.total === 1 ? "" : "s"}`;
+    elements.syncStatus.textContent = `Captured ${homework.count} homework item${homework.count === 1 ? "" : "s"} and ${gradeText}.`;
+  } finally {
+    elements.syncButton.disabled = false;
+    render();
+  }
 }
 
 function sendSchoologyMessage(type, onResponse) {
@@ -1317,11 +1336,11 @@ async function grabCourseGrade(course) {
   elements.syncStatus.textContent = `Updated ${course.name}: ${result.grade.gradePercent}% from ${gradeSourceLabel(result.grade)}.`;
 }
 
-async function updateAllGrades() {
+async function updateAllGrades(options = {}) {
   const courses = state.courses.filter((course) => courseGradeUrl(course));
   if (courses.length === 0) {
-    elements.syncStatus.textContent = "Add grade page links before updating grades.";
-    return;
+    if (!options.quietWhenEmpty) elements.syncStatus.textContent = "Add grade page links before updating grades.";
+    return { updated: 0, total: 0 };
   }
 
   isUpdatingGrades = true;
@@ -1338,7 +1357,10 @@ async function updateAllGrades() {
       await updateCourseAsync(course.id, gradePatch(result.grade));
     }
     if (updated > 0) await saveDailyGradeHistoryAsync();
-    elements.syncStatus.textContent = `Updated ${updated} of ${courses.length} course grade${courses.length === 1 ? "" : "s"}.`;
+    if (!options.quietFinalStatus) {
+      elements.syncStatus.textContent = `Updated ${updated} of ${courses.length} course grade${courses.length === 1 ? "" : "s"}.`;
+    }
+    return { updated, total: courses.length };
   } finally {
     isUpdatingGrades = false;
     render();
