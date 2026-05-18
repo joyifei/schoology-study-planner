@@ -7,7 +7,6 @@ const GRADE_HISTORY_KEY = "schoologyStudyPlanner.gradeHistory";
 const SYNC_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SYNC_V2";
 const SCAN_GRADE_MESSAGE = "SCHOOLGY_STUDY_PLANNER_SCAN_GRADE_V1";
 const DATA_FILE_NAME = "schoology-planner-data.json";
-const DATA_FILE_PATH = `data/${DATA_FILE_NAME}`;
 const CHART_COLORS = ["#1d75bd", "#008a8a", "#b7791f", "#c33a32", "#2f855a", "#805ad5", "#d53f8c", "#4a5568"];
 
 const elements = {
@@ -29,6 +28,7 @@ const elements = {
   addCourseButton: document.querySelector("#addCourseButton"),
   exportCoursesButton: document.querySelector("#exportCoursesButton"),
   importCoursesButton: document.querySelector("#importCoursesButton"),
+  importCoursesInput: document.querySelector("#importCoursesInput"),
   gradesTable: document.querySelector("#gradesTable"),
   gradesEmptyState: document.querySelector("#gradesEmptyState"),
   weightedGpa: document.querySelector("#weightedGpa"),
@@ -1067,7 +1067,7 @@ function exportCourses() {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  elements.syncStatus.textContent = `Exported ${DATA_FILE_NAME}. Put it in the project's data folder for bundled import.`;
+  elements.syncStatus.textContent = `Exported ${DATA_FILE_NAME}. Keep it private and import it on another machine when needed.`;
 }
 
 function importPlannerData(parsed) {
@@ -1117,16 +1117,20 @@ function importPlannerData(parsed) {
   });
 }
 
-async function importBundledData() {
-  try {
-    elements.syncStatus.textContent = `Importing ${DATA_FILE_PATH}...`;
-    const response = await fetch(`${chrome.runtime.getURL(DATA_FILE_PATH)}?t=${Date.now()}`);
-    if (!response.ok) throw new Error("Missing data file");
-    const parsed = await response.json();
-    importPlannerData(parsed);
-  } catch (_error) {
-    elements.syncStatus.textContent = `Could not import ${DATA_FILE_PATH}. Export ${DATA_FILE_NAME}, put it in the data folder, then reload the extension.`;
-  }
+function importCoursesFromFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.addEventListener("load", () => {
+    try {
+      const parsed = JSON.parse(String(reader.result || ""));
+      importPlannerData(parsed);
+    } catch (_error) {
+      elements.syncStatus.textContent = `Could not import data. Choose an exported ${DATA_FILE_NAME} file.`;
+    } finally {
+      elements.importCoursesInput.value = "";
+    }
+  });
+  reader.readAsText(file);
 }
 
 function toggleDone(task, checked) {
@@ -1450,7 +1454,8 @@ elements.clearButton.addEventListener("click", clearSavedData);
 elements.filterSelect.addEventListener("change", renderTable);
 elements.addCourseButton.addEventListener("click", addCourse);
 elements.exportCoursesButton.addEventListener("click", exportCourses);
-elements.importCoursesButton.addEventListener("click", importBundledData);
+elements.importCoursesButton.addEventListener("click", () => elements.importCoursesInput.click());
+elements.importCoursesInput.addEventListener("change", () => importCoursesFromFile(elements.importCoursesInput.files?.[0]));
 elements.updateAllGradesButton.addEventListener("click", updateAllGrades);
 for (const button of elements.tabButtons) {
   button.addEventListener("click", () => switchTab(button.dataset.tab));

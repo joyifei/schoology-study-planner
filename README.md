@@ -40,7 +40,7 @@ Weighted GPA uses the Conestoga High School conversion chart for AP, Honors, Acc
 
 Each successful grade grab saves today's course grades plus weighted and unweighted GPA. If grades are grabbed more than once on the same day, the latest snapshot replaces the earlier one.
 
-Use `Export Data` in the top bar to download `schoology-planner-data.json` with homework done status, course setup, credits, current grades, and saved GPA history. To bundle that data with the extension, replace `data/schoology-planner-data.json` with the exported file before loading the extension in another Chrome profile or laptop. `Import Data` reads that bundled file directly.
+Use `Export Data` in the top bar to download `schoology-planner-data.json` with homework done status, course setup, credits, current grades, and saved GPA history. Keep that file private. Use `Import Data` to choose an exported data file on another Chrome profile or laptop.
 
 ## Privacy
 
@@ -49,7 +49,6 @@ All captured homework data is stored locally with `chrome.storage.local`. There 
 ## Files
 
 - `manifest.json` - Chrome extension configuration.
-- `data/schoology-planner-data.json` - Optional bundled planner data used by `Import Data`.
 - `popup.html` - Extension popup layout.
 - `src/contentScript.js` - Schoology page extraction logic.
 - `src/popup.js` - Table, filters, local storage, and plan generation.

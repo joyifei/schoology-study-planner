@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Schoology Study Planner",
-  "description": "Turn Schoology Upcoming and To Do items into a parent-friendly homework table and daily study plan.",
-  "version": "0.1.0",
+  "description": "Turn Schoology homework and grades into a parent-friendly study planner and GPA dashboard.",
+  "version": "0.2.0",
   "permissions": ["activeTab", "scripting", "storage", "tabs"],
   "host_permissions": ["*://*.schoology.com/*"],
   "action": {
