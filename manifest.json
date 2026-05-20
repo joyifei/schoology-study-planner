@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Schoology Study Planner",
   "description": "Turn Schoology homework and grades into a parent-friendly study planner and GPA dashboard.",
-  "version": "0.2.0",
-  "permissions": ["activeTab", "scripting", "storage", "tabs"],
+  "version": "0.2.1",
+  "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["*://*.schoology.com/*"],
   "action": {
     "default_title": "Schoology Study Planner",
